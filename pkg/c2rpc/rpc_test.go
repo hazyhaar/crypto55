@@ -13,9 +13,9 @@ import (
 
 	"code.hazyhaar.fr/devhoros/crypto55/pkg/c2block"
 	"code.hazyhaar.fr/devhoros/crypto55/pkg/c2crypto"
-	"code.hazyhaar.fr/devhoros/crypto55/pkg/statetrie"
 	"code.hazyhaar.fr/devhoros/crypto55/pkg/c2seq"
 	"code.hazyhaar.fr/devhoros/crypto55/pkg/evm256"
+	"code.hazyhaar.fr/devhoros/crypto55/pkg/statetrie"
 )
 
 const rawLegacy = "f86c098504a817c800825208943535353535353535353535353535353535353535880de0b6b3a76400008025a028ef61340bd939bc2195fe63288898e2f910f04bc51d1dba5a8b57b8a4ba6ac7a0122dacd536abc73bba1586e5b5c72fa07d959584d2d7fec1d1f55f8ba297996c"
@@ -459,3 +459,40 @@ func TestParseAndInvalid(t *testing.T) {
 		t.Fatalf("code=%v", code)
 	}
 }
+
+func TestArbitrumAndWeb3Endpoints(t *testing.T) {
+	api := newAPI(statetrie.NewStateTrie())
+	hs := httptest.NewServer(NewServer(api))
+	defer hs.Close()
+
+	// net_version
+	m := post(t, hs.URL, rpcJSON("net_version", []any{}, 1))
+	if m["result"] != "1" {
+		t.Fatalf("net_version=%v, attendu 1", m["result"])
+	}
+
+	// web3_clientVersion
+	m = post(t, hs.URL, rpcJSON("web3_clientVersion", []any{}, 2))
+	if !strings.HasPrefix(m["result"].(string), "crypto55/") {
+		t.Fatalf("web3_clientVersion=%v", m["result"])
+	}
+
+	// eth_gasPrice
+	m = post(t, hs.URL, rpcJSON("eth_gasPrice", []any{}, 3))
+	if m["result"] == nil || !strings.HasPrefix(m["result"].(string), "0x") {
+		t.Fatalf("eth_gasPrice=%v", m["result"])
+	}
+
+	// arb_getBatchConfirmations
+	m = post(t, hs.URL, rpcJSON("arb_getBatchConfirmations", []any{}, 4))
+	if m["result"] != "0x1" {
+		t.Fatalf("arb_getBatchConfirmations=%v, attendu 0x1", m["result"])
+	}
+
+	// arb_getSequencerAddress
+	m = post(t, hs.URL, rpcJSON("arb_getSequencerAddress", []any{}, 5))
+	if m["result"] == nil || !strings.HasPrefix(m["result"].(string), "0x") {
+		t.Fatalf("arb_getSequencerAddress=%v", m["result"])
+	}
+}
+

@@ -6,8 +6,8 @@ import (
 	"encoding/hex"
 	"testing"
 
-	"code.hazyhaar.fr/devhoros/crypto55/pkg/statetrie"
 	"code.hazyhaar.fr/devhoros/crypto55/pkg/evm256"
+	"code.hazyhaar.fr/devhoros/crypto55/pkg/statetrie"
 )
 
 func mustHex(t *testing.T, s string) []byte {
@@ -393,5 +393,295 @@ func TestEcrecoverPrecompile(t *testing.T) {
 	}
 	if len(out) != 32 {
 		t.Fatalf("len=%d", len(out))
+	}
+}
+
+func TestProcessTransactionGasLimitZero(t *testing.T) {
+	st := statetrie.NewStateTrie()
+	from := sender()
+	fund(st, from, 1_000_000)
+	to := Address{0xB2}
+	p := NewBlockProcessor(st)
+	h := header()
+
+	h.GasLimit = 0
+	rec, err := p.ProcessTransaction(h, &Transaction{
+		Nonce:    0,
+		GasPrice: evm256.FromU64(1),
+		Gas:      21000,
+		To:       &to,
+		Value:    evm256.FromU64(1000),
+		From:     from,
+	})
+	if err != nil {
+		t.Fatalf("GasLimit=0 doit autoriser l'exécution sans plafond: %v", err)
+	}
+	if rec.Status != 1 || rec.GasUsed != 21000 {
+		t.Fatalf("status=%d gasUsed=%d", rec.Status, rec.GasUsed)
+	}
+
+	h.GasLimit = 20000
+	_, err = p.ProcessTransaction(h, &Transaction{
+		Nonce:    p.nonceOf(from),
+		GasPrice: evm256.FromU64(1),
+		Gas:      21000,
+		To:       &to,
+		From:     from,
+	})
+	if err != ErrGasLimit {
+		t.Fatalf("plafond non nul doit être appliqué: err=%v", err)
+	}
+}
+
+// TestEIP161PreexistingEmptyCoinbaseCleared atteste que la règle EIP-161 (Spurious Dragon)
+// supprime formellement de l'état un compte coinbase préexistant vide (solde nul, nonce nul, code vide)
+// touché par une transaction dont le pourboire est nul (tip == 0).
+func TestEIP161PreexistingEmptyCoinbaseCleared(t *testing.T) {
+	st := statetrie.NewStateTrie()
+	from := sender()
+	fund(st, from, 1_000_000)
+
+	coinbase := Address{19: 0xc0}
+	coinU := addrToU256(coinbase)
+	// Préexistence du compte coinbase vide dans l'état
+	st.SetAccount(&coinU, &statetrie.Account{Nonce: 0, Balance: evm256.Uint256{}, Code: nil})
+	if _, ok := st.GetAccount(&coinU); !ok {
+		t.Fatal("coinbase préexistante doit être présente avant la transaction")
+	}
+
+	p := NewBlockProcessor(st)
+	h := header()
+	h.Coinbase = coinbase
+	h.BaseFee = evm256.FromU64(10)
+
+	to := Address{19: 0x22}
+	tx := &Transaction{
+		Nonce:    0,
+		GasPrice: evm256.FromU64(10), // GasPrice == BaseFee => tip == 0
+		Gas:      21000,
+		To:       &to,
+		Value:    evm256.FromU64(100),
+		From:     from,
+	}
+
+	rec, err := p.ProcessTransaction(h, tx)
+	if err != nil {
+		t.Fatalf("ProcessTransaction: %v", err)
+	}
+	if rec.Status != 1 {
+		t.Fatalf("reçu non abouti: %+v", rec)
+	}
+
+	// Selon EIP-161, la coinbase a été touchée et étant vide à l'issue de la transaction,
+	// elle doit avoir été supprimée du StateTrie.
+	if acc, ok := st.GetAccount(&coinU); ok {
+		t.Fatalf("coinbase vide préexistante aurait dû être purgée par EIP-161, trouvée: %+v", acc)
+	}
+}
+
+// TestEIP161TouchedEmptyCalleeCleared atteste qu'un compte destinataire vide appelé
+// sans transfert de valeur (ou dont le solde reste nul) est également purgé de l'arbre d'état.
+func TestEIP161TouchedEmptyCalleeCleared(t *testing.T) {
+	st := statetrie.NewStateTrie()
+	from := sender()
+	fund(st, from, 1_000_000)
+
+	emptyCallee := Address{19: 0x42}
+	calleeU := addrToU256(emptyCallee)
+	st.SetAccount(&calleeU, &statetrie.Account{Nonce: 0, Balance: evm256.Uint256{}, Code: nil})
+
+	p := NewBlockProcessor(st)
+	h := header()
+	tx := &Transaction{
+		Nonce:    0,
+		GasPrice: evm256.FromU64(1),
+		Gas:      21000,
+		To:       &emptyCallee,
+		Value:    evm256.Uint256{}, // virement de 0 wei
+		From:     from,
+	}
+
+	rec, err := p.ProcessTransaction(h, tx)
+	if err != nil {
+		t.Fatalf("ProcessTransaction: %v", err)
+	}
+	if rec.Status != 1 {
+		t.Fatalf("reçu non abouti: %+v", rec)
+	}
+
+	if acc, ok := st.GetAccount(&calleeU); ok {
+		t.Fatalf("destinataire vide appelé aurait dû être purgé par EIP-161, trouvé: %+v", acc)
+	}
+}
+
+// TestEIP6780PreexistingContractPreserved atteste que sous Cancun (EIP-6780),
+// un contrat préexistant qui appelle SELFDESTRUCT transfère son solde au bénéficiaire
+// mais conserve son compte (code, nonce, stockage) dans l'arbre d'état.
+func TestEIP6780PreexistingContractPreserved(t *testing.T) {
+	st := statetrie.NewStateTrie()
+	from := sender()
+	fund(st, from, 1_000_000)
+
+	contract := Address{19: 0x77}
+	cu := addrToU256(contract)
+	var code []byte
+	code = append(code, 0x73) // PUSH20
+	code = append(code, from[:]...)
+	code = append(code, 0xff) // SELFDESTRUCT
+
+	acc := &statetrie.Account{
+		Nonce:   1,
+		Balance: evm256.FromU64(500),
+		Code:    code,
+	}
+	st.SetAccount(&cu, acc)
+
+	p := NewBlockProcessor(st)
+	h := header()
+	tx := &Transaction{
+		Nonce:    0,
+		GasPrice: evm256.FromU64(1),
+		Gas:      100_000,
+		To:       &contract,
+		Value:    evm256.Uint256{},
+		From:     from,
+	}
+
+	rec, err := p.ProcessTransaction(h, tx)
+	if err != nil {
+		t.Fatalf("ProcessTransaction SELFDESTRUCT: %v", err)
+	}
+	if rec.Status != 1 {
+		t.Fatalf("reçu non abouti: %+v", rec)
+	}
+
+	// Selon EIP-6780, le compte préexistant n'est pas détruit : son solde est nul
+	// mais son compte existe toujours dans l'arbre d'état.
+	persisted, ok := st.GetAccount(&cu)
+	if !ok {
+		t.Fatal("selon EIP-6780 (Cancun), un compte préexistant ne doit pas être supprimé par SELFDESTRUCT")
+	}
+	if !evm256.IsZero(&persisted.Balance) {
+		t.Fatalf("solde non vidé: %v", persisted.Balance)
+	}
+	if len(persisted.Code) == 0 {
+		t.Fatal("code du contrat préexistant doit être préservé sous EIP-6780")
+	}
+}
+
+// TestEIP6780SameTxCreatedContractDeleted atteste que sous Cancun (EIP-6780),
+// un contrat créé dans la même transaction qui possède du code déployé (non vide)
+// et qui appelle SELFDESTRUCT est formellement supprimé de l'arbre d'état.
+func TestEIP6780SameTxCreatedContractDeleted(t *testing.T) {
+	st := statetrie.NewStateTrie()
+	from := sender()
+	fund(st, from, 10_000_000)
+
+	// Contrat enfant :
+	// Init code (12 octets) : PUSH1 22, PUSH1 12, PUSH1 0, CODECOPY, PUSH1 22, PUSH1 0, RETURN
+	// Runtime code (22 octets) : PUSH20 <from>, SELFDESTRUCT (0xff)
+	var childInit []byte
+	childInit = append(childInit, 0x60, 0x16, 0x60, 0x0c, 0x60, 0x00, 0x39, 0x60, 0x16, 0x60, 0x00, 0xf3)
+	childInit = append(childInit, 0x73)
+	childInit = append(childInit, from[:]...)
+	childInit = append(childInit, 0xff)
+
+	// Contrat parent qui :
+	// 1. Charge childInit en mémoire via MSTORE / MSTORE8
+	// 2. Exécute CREATE(value=0, offset=0, size=34) pour déployer l'enfant (l'enfant reçoit du code et nonce=1)
+	// 3. Exécute CALL vers l'adresse de l'enfant pour déclencher son SELFDESTRUCT
+	// 4. Enregistre l'adresse de l'enfant dans son stockage au slot 0 (SSTORE)
+	var parentCode []byte
+	parentCode = append(parentCode, 0x7f) // PUSH32 (premiers 32 octets)
+	parentCode = append(parentCode, childInit[:32]...)
+	parentCode = append(parentCode, 0x60, 0x00, 0x52)                      // PUSH1 0, MSTORE
+	parentCode = append(parentCode, 0x60, childInit[32], 0x60, 0x20, 0x53) // PUSH1 b32, PUSH1 32, MSTORE8
+	parentCode = append(parentCode, 0x60, childInit[33], 0x60, 0x21, 0x53) // PUSH1 b33, PUSH1 33, MSTORE8
+	parentCode = append(parentCode, 0x60, 0x22, 0x60, 0x00, 0x60, 0x00, 0xf0) // PUSH1 34, PUSH1 0, PUSH1 0, CREATE -> [childAddr]
+	parentCode = append(parentCode, 0x80)                                      // DUP1 -> [childAddr, childAddr]
+	parentCode = append(parentCode, 0x60, 0x00, 0x60, 0x00, 0x60, 0x00, 0x60, 0x00, 0x60, 0x00) // outSz, outOff, inSz, inOff, val = 0
+	parentCode = append(parentCode, 0x85)                                      // DUP6 -> childAddr
+	parentCode = append(parentCode, 0x62, 0x01, 0x86, 0xa0)                    // PUSH3 100000 gas
+	parentCode = append(parentCode, 0xf1)                                      // CALL -> [callOk, childAddr]
+	parentCode = append(parentCode, 0x50)                                      // POP -> [childAddr]
+	parentCode = append(parentCode, 0x60, 0x00, 0x55)                          // PUSH1 0, SSTORE -> stocke childAddr au slot 0
+	parentCode = append(parentCode, 0x00)                                      // STOP
+
+	factoryAddr := Address{19: 0x99}
+	fu := addrToU256(factoryAddr)
+	st.SetAccount(&fu, &statetrie.Account{Nonce: 1, Code: parentCode})
+
+	p := NewBlockProcessor(st)
+	h := header()
+	tx := &Transaction{
+		Nonce:    0,
+		GasPrice: evm256.FromU64(1),
+		Gas:      500_000,
+		To:       &factoryAddr,
+		From:     from,
+	}
+
+	rec, err := p.ProcessTransaction(h, tx)
+	if err != nil {
+		t.Fatalf("ProcessTransaction Factory: %v", err)
+	}
+	if rec.Status != 1 {
+		t.Fatalf("reçu non abouti: %+v", rec)
+	}
+
+	// Lecture de l'adresse de l'enfant stockée au slot 0 du parent
+	var childU evm256.Uint256
+	zeroKey := evm256.FromU64(0)
+	st.GetStorage(&fu, &zeroKey, &childU)
+	childAddr := u256ToAddr(childU)
+	if childAddr == (Address{}) {
+		t.Fatal("adresse enfant créée nulle")
+	}
+
+	// Selon EIP-6780, l'enfant créé dans la même transaction ayant du code déployé DOIT être supprimé
+	if acc, ok := st.GetAccount(&childU); ok {
+		t.Fatalf("contrat enfant créé dans la même transaction doit être supprimé par EIP-6780, trouvé: %+v", acc)
+	}
+}
+
+// TestEIP161TouchInRevertedFrameMustNotDelete atteste qu'un compte vide touché
+// au sein d'un cadre qui REVERT n'est pas purgé de l'arbre d'état.
+func TestEIP161TouchInRevertedFrameMustNotDelete(t *testing.T) {
+	st := statetrie.NewStateTrie()
+	from := sender()
+	fund(st, from, 1_000_000)
+
+	empty := Address{19: 0x42}
+	eu := addrToU256(empty)
+	st.SetAccount(&eu, &statetrie.Account{})
+
+	contract := Address{19: 0x77}
+	cu := addrToU256(contract)
+	var code []byte
+	for i := 0; i < 5; i++ {
+		code = append(code, 0x60, 0x00)
+	}
+	code = append(code, 0x73)
+	code = append(code, empty[:]...)
+	code = append(code, 0x61, 0xff, 0xff, 0xf1)       // CALL
+	code = append(code, 0x60, 0x00, 0x60, 0x00, 0xfd) // REVERT
+	st.SetAccount(&cu, &statetrie.Account{Nonce: 1, Code: code})
+
+	p := NewBlockProcessor(st)
+	rec, err := p.ProcessTransaction(header(), &Transaction{
+		Nonce:    0,
+		GasPrice: evm256.FromU64(1),
+		Gas:      100_000,
+		To:       &contract,
+		From:     from,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec.Status != 0 {
+		t.Fatalf("le cadre devait REVERT")
+	}
+	if _, ok := st.GetAccount(&eu); !ok {
+		t.Fatalf("DIVERGENCE : compte vide touché dans un cadre annulé indûment supprimé")
 	}
 }

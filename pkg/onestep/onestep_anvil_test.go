@@ -20,9 +20,11 @@ import (
 	"path/filepath"
 
 	"code.hazyhaar.fr/devhoros/crypto55/pkg/c2evm"
+	"code.hazyhaar.fr/devhoros/crypto55/pkg/evm256"
+	"code.hazyhaar.fr/devhoros/crypto55/pkg/statetrie"
 )
 
-const selectorHex = "d3a32390"
+const selectorHex = "7bce236b"
 
 func getAnvilBinary() string {
 	if p, err := exec.LookPath("anvil"); err == nil {
@@ -346,3 +348,132 @@ func TestAnvilDifferentialRejectsTamperedWitness(t *testing.T) {
 		}
 	})
 }
+
+func TestAnvilDifferentialWithStorageProof(t *testing.T) {
+	url := startAnvil(t)
+	addr := installContract(t, url, loadDeployedBytecode(t))
+
+	tr := statetrie.NewStateTrie()
+	acct := evm256.FromU64(0x1000)
+	slot := evm256.FromU64(7)
+	val := evm256.FromU64(0x123456)
+	tr.SetAccount(&acct, &statetrie.Account{})
+	tr.SetStorage(&acct, &slot, &val)
+
+	code := mustHex(t, "62123456600755600754")
+	f := new(c2evm.ExecutionFrame)
+	f.StateDB = tr
+	f.Reset(1_000_000)
+
+	var sloadWitness *StepWitness
+	var sloadPostGas uint64
+	for f.Status == c2evm.StatusRunning {
+		if int(f.PC) >= len(code) {
+			break
+		}
+		op := code[f.PC]
+		pre := cloneFrame(f)
+		c2evm.StepOne(f, code)
+		post := cloneFrame(f)
+		if op == 0x54 {
+			w, err := CaptureWitnessWithStorage(pre, post, op, tr, acct)
+			if err != nil {
+				t.Fatalf("capture SLOAD: %v", err)
+			}
+			sloadWitness = w
+			sloadPostGas = post.Gas
+			break
+		}
+	}
+	if sloadWitness == nil {
+		t.Fatal("SLOAD non exécuté")
+	}
+
+	t.Run("validProofParity", func(t *testing.T) {
+		assertDifferentialParity(t, url, addr, sloadWitness, sloadPostGas)
+	})
+
+	t.Run("tamperedProofRejected", func(t *testing.T) {
+		bad := *sloadWitness
+		bad.StorageProof = make([][]byte, len(sloadWitness.StorageProof))
+		for i, n := range sloadWitness.StorageProof {
+			bad.StorageProof[i] = append([]byte(nil), n...)
+		}
+		bad.StorageProof[0][len(bad.StorageProof[0])-1] ^= 1
+		if ok, _ := VerifyWitness(&bad); ok {
+			t.Fatal("Go doit rejeter la preuve falsifiée")
+		}
+		if success, _, _ := callAnvilOneStep(t, url, addr, &bad); success {
+			t.Fatal("Anvil doit rejeter la preuve falsifiée")
+		}
+	})
+
+	t.Run("tamperedStorageRootRejected", func(t *testing.T) {
+		bad := *sloadWitness
+		bad.StorageRoot[0] ^= 1
+		bad.PreStateRoot = hashState(bad.PC, bad.Gas, bad.StackIn, bad.MemOffset, bad.MemData, bad.StorageRoot, bad.StorageKey, bad.StorageVal)
+		bad.PostStateRoot = hashState(bad.PC+1, sloadPostGas, bad.StackOut, bad.MemOffset, bad.MemData, bad.StorageRoot, bad.StorageKey, bad.StorageVal)
+		if ok, _ := VerifyWitness(&bad); ok {
+			t.Fatal("Go doit rejeter la racine de stockage altérée")
+		}
+		if success, _, _ := callAnvilOneStep(t, url, addr, &bad); success {
+			t.Fatal("Anvil doit rejeter la racine de stockage altérée")
+		}
+	})
+}
+
+func TestAnvilDifferentialMultiSlotStorageProof(t *testing.T) {
+	url := startAnvil(t)
+	addr := installContract(t, url, loadDeployedBytecode(t))
+
+	tr := statetrie.NewStateTrie()
+	acct := evm256.FromU64(0x2000)
+	tr.SetAccount(&acct, &statetrie.Account{})
+
+	for i := uint64(1); i <= 6; i++ {
+		slot := evm256.FromU64(i)
+		val := evm256.FromU64(i * 100)
+		tr.SetStorage(&acct, &slot, &val)
+	}
+
+	targetSlot := evm256.FromU64(3)
+	root, proof, err := tr.GenerateStorageProof(acct, targetSlot)
+	if err != nil {
+		t.Fatalf("génération preuve multi-slot: %v", err)
+	}
+	if len(proof) < 2 {
+		t.Fatalf("preuve multi-niveaux attendue, obtenu %d nœud(s)", len(proof))
+	}
+
+	w := &StepWitness{
+		PC:           0,
+		Opcode:       0x54,
+		Gas:          1000,
+		StackIn:      [4]evm256.Uint256{targetSlot},
+		StackOut:     [4]evm256.Uint256{evm256.FromU64(300)},
+		StorageRoot:  root,
+		StorageKey:   targetSlot,
+		StorageVal:   evm256.FromU64(300),
+		StorageProof: proof,
+	}
+	w.PreStateRoot = hashState(w.PC, w.Gas, w.StackIn, w.MemOffset, w.MemData, w.StorageRoot, w.StorageKey, w.StorageVal)
+	w.PostStateRoot = hashState(w.PC+1, 200, w.StackOut, w.MemOffset, w.MemData, w.StorageRoot, w.StorageKey, w.StorageVal)
+
+	ok, err := VerifyWitness(w)
+	if !ok || err != nil {
+		t.Fatalf("vérification Go du témoin multi-slot rejetée: ok=%v err=%v", ok, err)
+	}
+
+	success, outRoot, gas := callAnvilOneStep(t, url, addr, w)
+	if !success {
+		t.Fatalf("Anvil a rejeté la preuve MPT multi-nœuds (niveaux=%d)", len(proof))
+	}
+	if outRoot != w.PostStateRoot {
+		t.Fatalf("racine post-état divergente: anvil=%x go=%x", outRoot, w.PostStateRoot)
+	}
+	if gas != 200 {
+		t.Fatalf("gaz restant divergent: anvil=%d go=%d", gas, 200)
+	}
+}
+
+

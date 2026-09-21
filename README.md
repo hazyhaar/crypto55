@@ -18,7 +18,7 @@ Designed from the ground up to eliminate the memory overhead, garbage collection
 
 - **2,766,555 EVM operations / second** measured across real bytecode transitions with complete frame reset.
 - **0 B/op heap allocation** in steady-state execution: fixed 1024-word 256-bit stack, linear chunked memory, and zero-allocation Merkle Sparse State Trie with instant Copy-on-Write (`statetrie`).
-- **Complete Elimination of the WAVM Burden:** Dispute verification on L1 is performed in a single opcode transition using the bit-exact [`OneStepEVM.sol`](contracts/OneStepEVM.sol) smart contract, removing the multi-gigabyte WASM compilation pipeline and the interactive bisection protocol overhead.
+- **Complete Elimination of the WAVM Burden:** Dispute verification on L1 is performed directly at the native EVM opcode level using the bit-exact [`OneStepEVM.sol`](contracts/OneStepEVM.sol) smart contract, eliminating the multi-gigabyte WAVM compilation pipeline and replacing 50+ rounds of heavy WASM micro-instruction bisection with direct native EVM opcode dispute settlement.
 - **Hardware-Vectorized Primitives:** AVX-512 / ARM64 NEON unrolled 256-bit arithmetic (`evm256`) and constant-time Keccak-256 SIMD permutations (`c2crypto`).
 
 ---
@@ -34,7 +34,7 @@ All metrics below are measured on physical bare-metal hardware without synthetic
 | **EVM Instruction Throughput** | ~350,000 ops / sec | **2,766,555 ops / sec** | **7.9x faster** |
 | **256-bit Addition Latency** | ~14 ns (`big.Int`) | **2.33 ns (`evm256`)** | **6.0x faster** |
 | **Keccak-256 SIMD Throughput** | ~800,000 hashes / sec | **3,163,869 hashes / sec** | **3.9x faster** |
-| **L1 Dispute Proof Size** | Large multi-round bisection traces | **1 Step Witness (544 bytes calldata)** | Sub-second dispute |
+| **L1 Dispute Resolution** | 50+ rounds of WAVM micro-instruction traces | **Native EVM Step Settlement (< 1.5 KB witness)** | Single-opcode L1 settlement |
 
 ---
 
@@ -71,7 +71,7 @@ curl -X POST https://crypto55.hazyhaar.fr/api/simulate \
   ],
   "pre_state_root": "0xc00bbb96f634a9088c2a5730840261a2d9ba6048cf094e88ddd4854ad48dbd64",
   "post_state_root": "0x776cb226ccafdebd1216b6ebf73aa20e325018e4d9d069334fff5cfe1e4314fc",
-  "witness_abi": "0xd3a32390...",
+  "witness_abi": "0x7bce236b...",
   "dispute_verified": true
 }
 ```

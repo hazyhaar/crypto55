@@ -4,8 +4,8 @@ import (
 	"errors"
 
 	"code.hazyhaar.fr/devhoros/crypto55/pkg/c2crypto"
-	"code.hazyhaar.fr/devhoros/crypto55/pkg/statetrie"
 	"code.hazyhaar.fr/devhoros/crypto55/pkg/evm256"
+	"code.hazyhaar.fr/devhoros/crypto55/pkg/statetrie"
 )
 
 var (
@@ -107,7 +107,7 @@ func u256MulU64(a evm256.Uint256, n uint64) evm256.Uint256 {
 }
 
 func (p *BlockProcessor) ProcessTransaction(header *BlockHeader, tx *Transaction) (*Receipt, error) {
-	if tx.Gas > header.GasLimit {
+	if header.GasLimit != 0 && tx.Gas > header.GasLimit {
 		return nil, ErrGasLimit
 	}
 	ig := intrinsicGas(tx)
@@ -136,13 +136,24 @@ func (p *BlockProcessor) ProcessTransaction(header *BlockHeader, tx *Transaction
 	p.setNonce(tx.From, tx.Nonce+1)
 
 	env := &vmEnv{
-		state:    p.State,
-		header:   header,
-		origin:   tx.From,
-		gasPrice: eff,
+		state:       p.State,
+		header:      header,
+		origin:      tx.From,
+		gasPrice:    eff,
+		touched:     make(map[Address]bool),
+		createdInTx: make(map[Address]bool),
+	}
+	env.touch(tx.From)
+	env.touch(header.Coinbase)
+	if tx.To != nil {
+		env.touch(*tx.To)
 	}
 	gasLeft := tx.Gas - ig
 	rev := p.State.Snapshot()
+	logMark := len(env.logs)
+	touchMark := len(env.touchJournal)
+	createMark := len(env.createJournal)
+	suicideMark := len(env.suicideJournal)
 	var (
 		ret      []byte
 		ok       bool
@@ -176,6 +187,12 @@ func (p *BlockProcessor) ProcessTransaction(header *BlockHeader, tx *Transaction
 	}
 	if !ok {
 		p.State.RevertToSnapshot(rev)
+		env.logs = env.logs[:logMark]
+		env.revertTouched(touchMark)
+		env.revertCreated(createMark)
+		env.revertSuicided(suicideMark)
+	} else if tx.To == nil {
+		env.markCreated(contract)
 	}
 
 	used := tx.Gas - gasLeft
@@ -184,22 +201,27 @@ func (p *BlockProcessor) ProcessTransaction(header *BlockHeader, tx *Transaction
 		gasLeft = 0
 	}
 	refundCap := used / 5
-	if refundCap > 0 {
-		if gasLeft+refundCap < gasLeft {
-			gasLeft = tx.Gas
-		} else {
-			gasLeft += refundCap
-			if gasLeft > tx.Gas-ig {
-				gasLeft = tx.Gas - ig
-			}
-		}
+	actualRefund := env.refund
+	if actualRefund > refundCap {
+		actualRefund = refundCap
+	}
+	if actualRefund > 0 {
+		gasLeft += actualRefund
 		used = tx.Gas - gasLeft
 	}
 	refund := u256MulU64(eff, gasLeft)
-	p.State.AddBalance(&fromU, &refund)
+	if !evm256.IsZero(&refund) {
+		p.State.AddBalance(&fromU, &refund)
+	}
 	coin := addrToU256(header.Coinbase)
 	miner := u256MulU64(tip, used)
-	p.State.AddBalance(&coin, &miner)
+	if !evm256.IsZero(&miner) {
+		p.State.AddBalance(&coin, &miner)
+	}
+
+	// EIP-161 (Spurious Dragon) : suppression systématique de tout compte touché
+	// qui se trouve vide (solde nul, nonce nul, code vide) à l'issue de la transaction.
+	env.cleanTouchedEmptyAccounts()
 
 	rec := &Receipt{
 		GasUsed:         used,
@@ -217,14 +239,17 @@ func (p *BlockProcessor) ProcessTransaction(header *BlockHeader, tx *Transaction
 
 func (p *BlockProcessor) ProcessBlock(header *BlockHeader, txs []*Transaction) (*BlockResult, error) {
 	res := &BlockResult{}
+	blockRev := p.State.Snapshot()
 	var cum uint64
 	var all []*Log
 	for _, tx := range txs {
 		rec, err := p.ProcessTransaction(header, tx)
 		if err != nil {
+			p.State.RevertToSnapshot(blockRev)
 			return nil, err
 		}
 		if header.GasLimit != 0 && cum+rec.GasUsed > header.GasLimit {
+			p.State.RevertToSnapshot(blockRev)
 			return nil, ErrGasLimit
 		}
 		cum += rec.GasUsed
@@ -240,6 +265,7 @@ func (p *BlockProcessor) ProcessBlock(header *BlockHeader, txs []*Transaction) (
 	header.Bloom = res.Bloom
 	header.ReceiptsRoot = res.ReceiptsRoot
 	header.StateRoot = res.StateRoot
+	p.State.Commit()
 	return res, nil
 }
 
@@ -311,6 +337,15 @@ func encodeLogs(logs []*Log) []byte {
 		items[i] = rlpListEnc(rlpBytesEnc(l.Address[:]), rlpListEnc(topics...), rlpBytesEnc(l.Data))
 	}
 	return rlpListEnc(items...)
+}
+
+// LogsHash calcule l'empreinte Keccak-256 de la liste RLP des logs d'une transaction,
+// conformément à la spécification ethereum/tests et go-ethereum (types.DeriveLogHash).
+func LogsHash(logs []*Log) Hash {
+	encoded := encodeLogs(logs)
+	var h [32]byte
+	c2crypto.Keccak256(encoded, &h)
+	return Hash(h)
 }
 
 func bytesToNibbles(b []byte) []byte {
@@ -427,14 +462,17 @@ func mptEncode(n *mptNode, out []byte) int {
 	case mptLeaf:
 		return c2crypto.MptEncodeLeaf(n.nibbles, n.value, out)
 	case mptExt:
-		h := mptHashChild(n.children[0])
-		return c2crypto.MptEncodeExtension(n.nibbles, &h, out)
+		var cbuf [2048]byte
+		ck := mptEncode(n.children[0], cbuf[:])
+		return c2crypto.MptEncodeExtension(n.nibbles, cbuf[:ck], out)
 	case mptBranch:
-		var children [16][32]byte
+		var children [16][]byte
 		var has [16]int
+		var cbuf [16][2048]byte
 		for i := 0; i < 16; i++ {
 			if n.children[i] != nil {
-				children[i] = mptHashChild(n.children[i])
+				ck := mptEncode(n.children[i], cbuf[i][:])
+				children[i] = cbuf[i][:ck]
 				has[i] = 1
 			}
 		}
@@ -443,14 +481,6 @@ func mptEncode(n *mptNode, out []byte) int {
 		out[0] = 0x80
 		return 1
 	}
-}
-
-func mptHashChild(n *mptNode) [32]byte {
-	var buf [2048]byte
-	k := mptEncode(n, buf[:])
-	var h [32]byte
-	c2crypto.MptHashNode(buf[:k], &h)
-	return h
 }
 
 func mptHashRoot(n *mptNode) Hash {

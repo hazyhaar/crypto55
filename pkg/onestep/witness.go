@@ -7,23 +7,25 @@ import (
 	"code.hazyhaar.fr/devhoros/crypto55/pkg/c2crypto"
 	"code.hazyhaar.fr/devhoros/crypto55/pkg/c2evm"
 	"code.hazyhaar.fr/devhoros/crypto55/pkg/evm256"
+	"code.hazyhaar.fr/devhoros/crypto55/pkg/statetrie"
 )
 
 var (
-	ErrNilFrame   = errors.New("onestep: nil execution frame")
-	ErrNilWitness = errors.New("onestep: nil witness")
-	ErrOpcode     = errors.New("onestep: unsupported opcode")
-	ErrStack      = errors.New("onestep: insufficient stack depth")
-	ErrPreRoot    = errors.New("onestep: invalid pre-state root")
-	ErrPostRoot   = errors.New("onestep: invalid post-state root")
-	ErrStackOut   = errors.New("onestep: invalid output stack")
-	ErrStep       = errors.New("onestep: step transition rejected")
-	ErrCode       = errors.New("onestep: invalid replay bytecode")
+	ErrNilFrame     = errors.New("onestep: nil execution frame")
+	ErrNilWitness   = errors.New("onestep: nil witness")
+	ErrOpcode       = errors.New("onestep: unsupported opcode")
+	ErrStack        = errors.New("onestep: insufficient stack depth")
+	ErrPreRoot      = errors.New("onestep: invalid pre-state root")
+	ErrPostRoot     = errors.New("onestep: invalid post-state root")
+	ErrStackOut     = errors.New("onestep: invalid output stack")
+	ErrStep         = errors.New("onestep: step transition rejected")
+	ErrCode         = errors.New("onestep: invalid replay bytecode")
+	ErrStorageProof = errors.New("onestep: invalid storage merkle proof")
 )
 
 const (
-	abiWitnessWords = 17
-	abiStateWords   = 10
+	abiWitnessWords = 19
+	abiStateWords   = 11
 	memCap          = 65536
 	maxReplayCode   = 1 << 20
 )
@@ -40,6 +42,8 @@ type StepWitness struct {
 	MemData       [32]byte
 	StorageKey    evm256.Uint256
 	StorageVal    evm256.Uint256
+	StorageRoot   [32]byte
+	StorageProof  [][]byte
 }
 
 type slotStore struct {
@@ -195,7 +199,7 @@ func abiPutU8(dst []byte, v uint8) {
 	dst[31] = v
 }
 
-func hashState(pc uint32, gas uint64, stack [4]evm256.Uint256, memOff uint32, mem [32]byte, key, val evm256.Uint256) [32]byte {
+func hashState(pc uint32, gas uint64, stack [4]evm256.Uint256, memOff uint32, mem [32]byte, storageRoot [32]byte, key, val evm256.Uint256) [32]byte {
 	buf := make([]byte, abiStateWords*32)
 	abiPutU32(buf[0:32], pc)
 	abiPutU64(buf[32:64], gas)
@@ -205,10 +209,11 @@ func hashState(pc uint32, gas uint64, stack [4]evm256.Uint256, memOff uint32, me
 	}
 	abiPutU32(buf[192:224], memOff)
 	copy(buf[224:256], mem[:])
+	copy(buf[256:288], storageRoot[:])
 	k := evm256.BytesBE(key)
-	copy(buf[256:288], k[:])
+	copy(buf[288:320], k[:])
 	v := evm256.BytesBE(val)
-	copy(buf[288:320], v[:])
+	copy(buf[320:352], v[:])
 	var out [32]byte
 	c2crypto.Keccak256(buf, &out)
 	return out
@@ -238,8 +243,31 @@ func CaptureWitness(preFrame, postFrame *c2evm.ExecutionFrame, op byte) (*StepWi
 		StorageKey: skey,
 		StorageVal: sval,
 	}
-	w.PreStateRoot = hashState(preFrame.PC, preFrame.Gas, w.StackIn, w.MemOffset, w.MemData, w.StorageKey, w.StorageVal)
-	w.PostStateRoot = hashState(postFrame.PC, postFrame.Gas, w.StackOut, w.MemOffset, w.MemData, w.StorageKey, w.StorageVal)
+	w.PreStateRoot = hashState(preFrame.PC, preFrame.Gas, w.StackIn, w.MemOffset, w.MemData, w.StorageRoot, w.StorageKey, w.StorageVal)
+	w.PostStateRoot = hashState(postFrame.PC, postFrame.Gas, w.StackOut, w.MemOffset, w.MemData, w.StorageRoot, w.StorageKey, w.StorageVal)
+	return w, nil
+}
+
+// CaptureWitnessWithStorage capture le même pas que CaptureWitness et, pour un
+// SLOAD (0x54) ou un SSTORE (0x55), y joint la racine de stockage du compte et
+// la preuve Merkle Patricia Trie du slot engagé. Un trie nil laisse le témoin
+// sans preuve, ce qui préserve le chemin de vérification local.
+func CaptureWitnessWithStorage(preFrame, postFrame *c2evm.ExecutionFrame, op byte, trie *statetrie.StateTrie, addr evm256.Uint256) (*StepWitness, error) {
+	w, err := CaptureWitness(preFrame, postFrame, op)
+	if err != nil {
+		return nil, err
+	}
+	if trie == nil || (op != 0x54 && op != 0x55) {
+		return w, nil
+	}
+	root, proof, err := trie.GenerateStorageProof(addr, w.StorageKey)
+	if err != nil {
+		return nil, err
+	}
+	w.StorageRoot = root
+	w.StorageProof = proof
+	w.PreStateRoot = hashState(preFrame.PC, preFrame.Gas, w.StackIn, w.MemOffset, w.MemData, w.StorageRoot, w.StorageKey, w.StorageVal)
+	w.PostStateRoot = hashState(postFrame.PC, postFrame.Gas, w.StackOut, w.MemOffset, w.MemData, w.StorageRoot, w.StorageKey, w.StorageVal)
 	return w, nil
 }
 
@@ -322,7 +350,7 @@ func VerifyWitness(w *StepWitness) (bool, error) {
 	if !opcodeSupported(w.Opcode) {
 		return false, ErrOpcode
 	}
-	pre := hashState(w.PC, w.Gas, w.StackIn, w.MemOffset, w.MemData, w.StorageKey, w.StorageVal)
+	pre := hashState(w.PC, w.Gas, w.StackIn, w.MemOffset, w.MemData, w.StorageRoot, w.StorageKey, w.StorageVal)
 	if pre != w.PreStateRoot {
 		return false, ErrPreRoot
 	}
@@ -348,9 +376,27 @@ func VerifyWitness(w *StepWitness) (bool, error) {
 			return false, ErrStep
 		}
 	}
-	post := hashState(f.PC, f.Gas, w.StackOut, w.MemOffset, w.MemData, w.StorageKey, w.StorageVal)
+	post := hashState(f.PC, f.Gas, w.StackOut, w.MemOffset, w.MemData, w.StorageRoot, w.StorageKey, w.StorageVal)
 	if post != w.PostStateRoot {
 		return false, ErrPostRoot
+	}
+	if w.Opcode == 0x54 || w.Opcode == 0x55 {
+		if len(w.StorageProof) == 0 {
+			if w.StorageRoot != ([32]byte{}) {
+				return false, ErrStorageProof
+			}
+		} else {
+			if w.StorageRoot == ([32]byte{}) {
+				return false, ErrStorageProof
+			}
+			var keyHash [32]byte
+			be := evm256.BytesBE(w.StorageKey)
+			c2crypto.Keccak256(be[:], &keyHash)
+			expected := statetrie.EncodeStorageValue(w.StorageVal)
+			if !statetrie.VerifyStorageProof(w.StorageRoot, keyHash, expected, w.StorageProof) {
+				return false, ErrStorageProof
+			}
+		}
 	}
 	return true, nil
 }
@@ -359,25 +405,51 @@ func EncodeWitnessABI(w *StepWitness) []byte {
 	if w == nil {
 		return nil
 	}
-	buf := make([]byte, abiWitnessWords*32)
-	copy(buf[0:32], w.PreStateRoot[:])
-	copy(buf[32:64], w.PostStateRoot[:])
-	abiPutU32(buf[64:96], w.PC)
-	abiPutU8(buf[96:128], w.Opcode)
-	abiPutU64(buf[128:160], w.Gas)
+	tupleOffset := 32
+	head := abiWitnessWords * 32
+	tail := 32
+	n := len(w.StorageProof)
+	tail += n * 32
+	elems := make([]int, n)
+	for i, p := range w.StorageProof {
+		elems[i] = ((len(p) + 31) / 32) * 32
+		tail += 32 + elems[i]
+	}
+	buf := make([]byte, tupleOffset+head+tail)
+	binary.BigEndian.PutUint64(buf[24:32], uint64(tupleOffset))
+	base := tupleOffset
+	copy(buf[base:base+32], w.PreStateRoot[:])
+	copy(buf[base+32:base+64], w.PostStateRoot[:])
+	abiPutU32(buf[base+64:base+96], w.PC)
+	abiPutU8(buf[base+96:base+128], w.Opcode)
+	abiPutU64(buf[base+128:base+160], w.Gas)
 	for i := 0; i < 4; i++ {
 		be := evm256.BytesBE(w.StackIn[i])
-		copy(buf[160+i*32:192+i*32], be[:])
+		copy(buf[base+160+i*32:base+192+i*32], be[:])
 	}
 	for i := 0; i < 4; i++ {
 		be := evm256.BytesBE(w.StackOut[i])
-		copy(buf[288+i*32:320+i*32], be[:])
+		copy(buf[base+288+i*32:base+320+i*32], be[:])
 	}
-	abiPutU32(buf[416:448], w.MemOffset)
-	copy(buf[448:480], w.MemData[:])
+	abiPutU32(buf[base+416:base+448], w.MemOffset)
+	copy(buf[base+448:base+480], w.MemData[:])
 	k := evm256.BytesBE(w.StorageKey)
-	copy(buf[480:512], k[:])
+	copy(buf[base+480:base+512], k[:])
 	v := evm256.BytesBE(w.StorageVal)
-	copy(buf[512:544], v[:])
+	copy(buf[base+512:base+544], v[:])
+	copy(buf[base+544:base+576], w.StorageRoot[:])
+	binary.BigEndian.PutUint64(buf[base+576+24:base+608], uint64(head))
+	dataBase := base + head
+	binary.BigEndian.PutUint64(buf[dataBase+24:dataBase+32], uint64(n))
+	off := dataBase + 32
+	dataOff := dataBase + 32 + n*32
+	for i := 0; i < n; i++ {
+		binary.BigEndian.PutUint64(buf[off+24:off+32], uint64(dataOff-(dataBase+32)))
+		off += 32
+		binary.BigEndian.PutUint64(buf[dataOff+24:dataOff+32], uint64(len(w.StorageProof[i])))
+		dataOff += 32
+		copy(buf[dataOff:], w.StorageProof[i])
+		dataOff += elems[i]
+	}
 	return buf
 }

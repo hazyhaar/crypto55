@@ -2,6 +2,7 @@ package c2rpc
 
 import (
 	"encoding/json"
+	"strconv"
 	"sync"
 
 	"code.hazyhaar.fr/devhoros/crypto55/pkg/c2block"
@@ -252,6 +253,20 @@ func (a *EthAPI) Handle(method string, params json.RawMessage) (any, *Error) {
 		return EncodeQuantity(a.blocks[len(a.blocks)-1].Header.Number), nil
 	case "eth_chainId":
 		return EncodeQuantity(a.chainID), nil
+	case "net_version":
+		return strconv.FormatUint(a.chainID, 10), nil
+	case "web3_clientVersion":
+		return "crypto55/v1.0.0/linux-amd64/go1.27", nil
+	case "eth_gasPrice":
+		base := a.Seq.Header.BaseFee
+		if evm256.IsZero(&base) {
+			base = evm256.FromU64(100_000_000)
+		}
+		return EncodeUint256(base), nil
+	case "arb_getBatchConfirmations":
+		return EncodeQuantity(1), nil
+	case "arb_getSequencerAddress":
+		return EncodeAddress(a.Seq.Header.Coinbase), nil
 	case "eth_getBalance":
 		return a.getBalance(params)
 	case "eth_getTransactionCount":

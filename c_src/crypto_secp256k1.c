@@ -674,3 +674,28 @@ int secp256k1_ecrecover(const uint8_t hash[32], uint8_t v, const uint8_t r[32],
 	u256_to_b32(&qy, out_pubkey + 32);
 	return 0;
 }
+
+int secp256k1_pubkey_from_seckey(const uint8_t seckey[32], uint8_t out_pubkey[64])
+{
+	uint256_t k;
+	secp256k1_jac_t gjac;
+	secp256k1_jac_t q;
+	uint256_t qx;
+	uint256_t qy;
+
+	b32_to_u256(seckey, &k);
+	if (u256_is_zero(&k) || u256_cmp(&k, &SECP_N) >= 0) {
+		return 1;
+	}
+	gjac.x = SECP_GX;
+	gjac.y = SECP_GY;
+	gjac.z = SECP_ONE;
+	secp256k1_jac_mul(&gjac, &k, &q);
+	if (jac_to_affine(&q, &qx, &qy) != 0) {
+		return 1;
+	}
+	u256_to_b32(&qx, out_pubkey);
+	u256_to_b32(&qy, out_pubkey + 32);
+	return 0;
+}
+

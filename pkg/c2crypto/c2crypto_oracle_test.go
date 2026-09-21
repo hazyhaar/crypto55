@@ -83,7 +83,7 @@ int main(void)
 	uint8_t buf[8192];
 	uint8_t buf2[8192];
 	uint8_t outb[65536];
-	size_t n, n2, n3;
+	size_t n, n2;
 
 	while (scanf("%31s", op) == 1) {
 		if (strcmp(op, "K256") == 0) {
@@ -210,8 +210,17 @@ int main(void)
 			}
 			m = mpt_encode_leaf(buf, n, buf2, n2, outb);
 			print_hex(outb, m);
+		} else if (strcmp(op, "MPT_CHILDREF") == 0) {
+			size_t m;
+			if (scanf("%8191s", a) != 1) {
+				return 2;
+			}
+			if (parse_hex(a, buf, sizeof(buf), &n) != 0) {
+				return 2;
+			}
+			m = mpt_encode_child_ref(buf, n, outb);
+			print_hex(outb, m);
 		} else if (strcmp(op, "MPT_EXT") == 0) {
-			uint8_t ch[32];
 			size_t m;
 			if (scanf("%8191s %8191s", a, b) != 2) {
 				return 2;
@@ -219,25 +228,29 @@ int main(void)
 			if (parse_hex(a, buf, sizeof(buf), &n) != 0) {
 				return 2;
 			}
-			if (parse_hex(b, ch, 32, &n2) != 0 || n2 != 32) {
+			if (parse_hex(b, buf2, sizeof(buf2), &n2) != 0) {
 				return 2;
 			}
-			m = mpt_encode_extension(buf, n, ch, outb);
+			m = mpt_encode_extension(buf, n, buf2, n2, outb);
 			print_hex(outb, m);
 		} else if (strcmp(op, "MPT_BRANCH") == 0) {
-			uint8_t children[16][32];
+			static uint8_t childbuf[16][8192];
+			const uint8_t *children_rlp[16];
+			size_t child_lens[16];
 			int has_child[16];
 			int i;
 			size_t m;
-			memset(children, 0, sizeof(children));
 			for (i = 0; i < 16; i++) {
 				if (scanf("%8191s", a) != 1) {
 					return 2;
 				}
+				children_rlp[i] = childbuf[i];
 				if (a[0] == '-' && a[1] == '\0') {
 					has_child[i] = 0;
+					child_lens[i] = 0;
 				} else {
-					if (parse_hex(a, children[i], 32, &n3) != 0 || n3 != 32) {
+					if (parse_hex(a, childbuf[i],
+					    sizeof(childbuf[i]), &child_lens[i]) != 0) {
 						return 2;
 					}
 					has_child[i] = 1;
@@ -249,7 +262,8 @@ int main(void)
 			if (parse_hex(b, buf2, sizeof(buf2), &n2) != 0) {
 				return 2;
 			}
-			m = mpt_encode_branch(children, has_child, buf2, n2, outb);
+			m = mpt_encode_branch(children_rlp, child_lens, has_child, buf2,
+			    n2, outb);
 			print_hex(outb, m);
 		} else {
 			return 2;
@@ -641,19 +655,28 @@ func TestMPTVsCOracle(t *testing.T) {
 	leafVal := []byte("ok")
 	fmt.Fprintf(&b, "MPT_LEAF %s %s\n", hexOrDash(leafNibs), hexOrDash(leafVal))
 	fmt.Fprintf(&b, "MPT_LEAF %s %s\n", hexOrDash([]byte{0x0a}), hexOrDash([]byte{}))
-	var child [32]byte
-	Keccak256([]byte("child"), &child)
-	fmt.Fprintf(&b, "MPT_EXT %s %s\n", hexOrDash([]byte{0x01, 0x02}), hex.EncodeToString(child[:]))
-	var children [16][32]byte
-	var has [16]int
-	has[0] = 1
-	has[15] = 1
-	Keccak256([]byte("c0"), &children[0])
-	Keccak256([]byte("c15"), &children[15])
+	for _, r := range rlps {
+		fmt.Fprintf(&b, "MPT_CHILDREF %s\n", hexOrDash(r))
+	}
+	extChildren := [][]byte{
+		{},
+		{0x0a},
+		[]byte("dog"),
+		bytes.Repeat([]byte{0xab}, 40),
+	}
+	for _, ch := range extChildren {
+		fmt.Fprintf(&b, "MPT_EXT %s %s\n", hexOrDash([]byte{0x01, 0x02}), hexOrDash(ch))
+	}
+	branchChildren := [16][]byte{}
+	var branchHas [16]int
+	branchChildren[0] = []byte{0x0a}
+	branchHas[0] = 1
+	branchChildren[15] = bytes.Repeat([]byte{0xcd}, 40)
+	branchHas[15] = 1
 	fmt.Fprintf(&b, "MPT_BRANCH")
 	for i := 0; i < 16; i++ {
-		if has[i] != 0 {
-			fmt.Fprintf(&b, " %s", hex.EncodeToString(children[i][:]))
+		if branchHas[i] != 0 {
+			fmt.Fprintf(&b, " %s", hex.EncodeToString(branchChildren[i]))
 		} else {
 			fmt.Fprintf(&b, " -")
 		}
@@ -698,12 +721,18 @@ func TestMPTVsCOracle(t *testing.T) {
 	cmp("leaf", hex.EncodeToString(enc[:k]))
 	k = MptEncodeLeaf([]byte{0x0a}, nil, enc[:])
 	cmp("leaf empty", hex.EncodeToString(enc[:k]))
-	k = MptEncodeExtension([]byte{0x01, 0x02}, &child, enc[:])
-	cmp("ext", hex.EncodeToString(enc[:k]))
-	k = MptEncodeBranch(&children, &has, []byte("val"), enc[:])
+	for _, r := range rlps {
+		k = MptEncodeChildRef(r, enc[:])
+		cmp("childref", hex.EncodeToString(enc[:k]))
+	}
+	for _, ch := range extChildren {
+		k = MptEncodeExtension([]byte{0x01, 0x02}, ch, enc[:])
+		cmp("ext", hex.EncodeToString(enc[:k]))
+	}
+	k = MptEncodeBranch(&branchChildren, &branchHas, []byte("val"), enc[:])
 	cmp("branch", hex.EncodeToString(enc[:k]))
 	var emptyHas [16]int
-	var emptyCh [16][32]byte
+	var emptyCh [16][]byte
 	k = MptEncodeBranch(&emptyCh, &emptyHas, nil, enc[:])
 	cmp("branch empty", hex.EncodeToString(enc[:k]))
 }
@@ -738,12 +767,13 @@ func TestAllocsPerRun(t *testing.T) {
 	check("RlpEncodeListHeader", func() { sinkInt = RlpEncodeListHeader(3, enc[:]) })
 	check("MptHashNode", func() { MptHashNode(in, &d32) })
 	check("MptEncodeLeaf", func() { sinkInt = MptEncodeLeaf(nibs, val, enc[:]) })
-	var ch [32]byte
-	ch[0] = 1
-	check("MptEncodeExtension", func() { sinkInt = MptEncodeExtension(nibs, &ch, enc[:]) })
-	var children [16][32]byte
+	childRLP := []byte{0x0a}
+	check("MptEncodeChildRef", func() { sinkInt = MptEncodeChildRef(childRLP, enc[:]) })
+	check("MptEncodeExtension", func() { sinkInt = MptEncodeExtension(nibs, childRLP, enc[:]) })
+	var children [16][]byte
 	var has [16]int
 	has[1] = 1
+	children[1] = childRLP
 	check("MptEncodeBranch", func() { sinkInt = MptEncodeBranch(&children, &has, val, enc[:]) })
 	empty := brotliUncompressed([]byte("x"))
 	bout := make([]byte, 16)

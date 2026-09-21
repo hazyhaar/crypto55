@@ -2,9 +2,9 @@ package c2block
 
 import (
 	"code.hazyhaar.fr/devhoros/crypto55/pkg/c2crypto"
-	"code.hazyhaar.fr/devhoros/crypto55/pkg/statetrie"
 	"code.hazyhaar.fr/devhoros/crypto55/pkg/c2evm"
 	"code.hazyhaar.fr/devhoros/crypto55/pkg/evm256"
+	"code.hazyhaar.fr/devhoros/crypto55/pkg/statetrie"
 )
 
 const (
@@ -43,18 +43,26 @@ func (b *boundState) SetStorage(addr, key, val *evm256.Uint256) {
 }
 
 type vmEnv struct {
-	state    *statetrie.StateTrie
-	header   *BlockHeader
-	origin   Address
-	gasPrice evm256.Uint256
-	logs     []*Log
-	retData  []byte
-	depth    int
+	state         *statetrie.StateTrie
+	header        *BlockHeader
+	origin        Address
+	gasPrice      evm256.Uint256
+	logs          []*Log
+	retData       []byte
+	depth         int
+	refund        uint64
+	touched        map[Address]bool
+	touchJournal   []Address
+	createdInTx    map[Address]bool
+	createJournal  []Address
+	suicided       map[Address]bool
+	suicideJournal []Address
 }
 
 type callParams struct {
 	caller   Address
 	addr     Address
+	codeAddr Address
 	origin   Address
 	value    evm256.Uint256
 	callVal  evm256.Uint256
@@ -146,6 +154,8 @@ func (e *vmEnv) getNonce(addr Address) uint64 {
 }
 
 func (e *vmEnv) transfer(from, to Address, val evm256.Uint256) error {
+	e.touch(from)
+	e.touch(to)
 	if evm256.IsZero(&val) {
 		return nil
 	}
@@ -161,6 +171,75 @@ func (e *vmEnv) transfer(from, to Address, val evm256.Uint256) error {
 func (e *vmEnv) emptyAccount(addr Address) bool {
 	acc := e.account(addr)
 	return acc.Nonce == 0 && evm256.IsZero(&acc.Balance) && len(acc.Code) == 0
+}
+
+func (e *vmEnv) touch(a Address) {
+	if e.touched == nil {
+		e.touched = make(map[Address]bool)
+	}
+	if !e.touched[a] {
+		e.touched[a] = true
+		e.touchJournal = append(e.touchJournal, a)
+	}
+}
+
+func (e *vmEnv) markCreated(a Address) {
+	if e.createdInTx == nil {
+		e.createdInTx = make(map[Address]bool)
+	}
+	if !e.createdInTx[a] {
+		e.createdInTx[a] = true
+		e.createJournal = append(e.createJournal, a)
+	}
+}
+
+func (e *vmEnv) revertTouched(mark int) {
+	for i := len(e.touchJournal) - 1; i >= mark; i-- {
+		a := e.touchJournal[i]
+		delete(e.touched, a)
+	}
+	e.touchJournal = e.touchJournal[:mark]
+}
+
+func (e *vmEnv) revertCreated(mark int) {
+	for i := len(e.createJournal) - 1; i >= mark; i-- {
+		a := e.createJournal[i]
+		delete(e.createdInTx, a)
+	}
+	e.createJournal = e.createJournal[:mark]
+}
+
+func (e *vmEnv) markSuicided(a Address) {
+	if e.suicided == nil {
+		e.suicided = make(map[Address]bool)
+	}
+	if !e.suicided[a] {
+		e.suicided[a] = true
+		e.suicideJournal = append(e.suicideJournal, a)
+	}
+}
+
+func (e *vmEnv) revertSuicided(mark int) {
+	for i := len(e.suicideJournal) - 1; i >= mark; i-- {
+		a := e.suicideJournal[i]
+		delete(e.suicided, a)
+	}
+	e.suicideJournal = e.suicideJournal[:mark]
+}
+
+func (e *vmEnv) cleanTouchedEmptyAccounts() {
+	for a := range e.touched {
+		if e.emptyAccount(a) {
+			ua := addrToU256(a)
+			e.state.SetAccount(&ua, nil)
+		}
+	}
+	for a := range e.suicided {
+		if e.createdInTx != nil && e.createdInTx[a] {
+			ua := addrToU256(a)
+			e.state.SetAccount(&ua, nil)
+		}
+	}
 }
 
 func createAddress(sender Address, nonce uint64) Address {
@@ -190,25 +269,50 @@ func (e *vmEnv) run(p callParams) (ret []byte, left uint64, ok bool) {
 	e.depth++
 	defer func() { e.depth-- }()
 
-	if id, isPC := isPrecompile(p.addr); isPC && p.kind != 0xf0 && p.kind != 0xf5 {
+	logMark := len(e.logs)
+	touchMark := len(e.touchJournal)
+	createMark := len(e.createJournal)
+	suicideMark := len(e.suicideJournal)
+	rev := e.state.Snapshot()
+
+	if p.kind == 0xf0 || p.kind == 0xf5 {
+		e.markCreated(p.addr)
+	}
+
+	e.touch(p.caller)
+	e.touch(p.addr)
+
+	if p.kind != 0xf4 {
+		if err := e.transfer(p.caller, p.addr, p.callVal); err != nil {
+			e.state.RevertToSnapshot(rev)
+			e.logs = e.logs[:logMark]
+			e.revertTouched(touchMark)
+			e.revertCreated(createMark)
+			e.revertSuicided(suicideMark)
+			return nil, p.gas, false
+		}
+	}
+
+	pcAddr := p.addr
+	if p.codeAddr != (Address{}) {
+		pcAddr = p.codeAddr
+	}
+	if id, isPC := isPrecompile(pcAddr); isPC && p.kind != 0xf0 && p.kind != 0xf5 {
 		out, g, err := RunPrecompile(id, p.data, p.gas)
 		if err != nil {
+			e.state.RevertToSnapshot(rev)
+			e.logs = e.logs[:logMark]
+			e.revertTouched(touchMark)
+			e.revertCreated(createMark)
+			e.revertSuicided(suicideMark)
 			return nil, 0, false
 		}
 		e.retData = out
 		return out, g, true
 	}
 
-	rev := e.state.Snapshot()
-	if p.kind != 0xf4 {
-		if err := e.transfer(p.caller, p.addr, p.callVal); err != nil {
-			e.state.RevertToSnapshot(rev)
-			return nil, p.gas, false
-		}
-	}
-
 	code := p.code
-	if p.kind != 0xf0 && p.kind != 0xf5 {
+	if p.kind != 0xf0 && p.kind != 0xf5 && p.kind != 0xf2 && p.kind != 0xf4 {
 		code = e.codeOf(p.addr)
 	}
 	if len(code) == 0 && p.kind != 0xf0 && p.kind != 0xf5 {
@@ -227,25 +331,43 @@ func (e *vmEnv) run(p callParams) (ret []byte, left uint64, ok bool) {
 	}
 	if status != c2evm.StatusSuccess {
 		e.state.RevertToSnapshot(rev)
+		e.logs = e.logs[:logMark]
+		e.revertTouched(touchMark)
+		e.revertCreated(createMark)
+		e.revertSuicided(suicideMark)
 		e.retData = ret
 		if status == c2evm.StatusRevert {
 			return ret, f.Gas, false
 		}
 		return ret, 0, false
 	}
+	e.refund += f.Refund
 	if p.kind == 0xf0 || p.kind == 0xf5 {
+		if e.suicided != nil && e.suicided[p.addr] {
+			e.retData = nil
+			return nil, f.Gas, true
+		}
 		if len(ret) > maxCodeSize {
 			e.state.RevertToSnapshot(rev)
+			e.logs = e.logs[:logMark]
+			e.revertTouched(touchMark)
+			e.revertCreated(createMark)
+			e.revertSuicided(suicideMark)
 			return nil, 0, false
 		}
 		deposit := uint64(len(ret)) * gasCodeDeposit
 		if f.Gas < deposit {
 			e.state.RevertToSnapshot(rev)
+			e.logs = e.logs[:logMark]
+			e.revertTouched(touchMark)
+			e.revertCreated(createMark)
+			e.revertSuicided(suicideMark)
 			return nil, 0, false
 		}
 		f.Gas -= deposit
 		e.setCode(p.addr, ret)
 		e.setNonce(p.addr, 1)
+		e.markCreated(p.addr)
 	}
 	e.retData = ret
 	return ret, f.Gas, true
@@ -290,7 +412,7 @@ func isHostOp(op byte) bool {
 		return true
 	case op >= 0xa0 && op <= 0xa4:
 		return true
-	case op == 0xf0, op == 0xf1, op == 0xf2, op == 0xf3, op == 0xf4, op == 0xf5, op == 0xfa:
+	case op == 0xf0, op == 0xf1, op == 0xf2, op == 0xf3, op == 0xf4, op == 0xf5, op == 0xfa, op == 0xff:
 		return true
 	default:
 		return false
@@ -317,6 +439,12 @@ func hostGas(op byte) uint64 {
 		return gasCallWarm
 	case 0xf3:
 		return 0
+	case 0xff:
+		// SELFDESTRUCT : tarification statique forfaitaire L2 fixée à 5000 gaz (coût de base EIP-150).
+		// Contrairement à Ethereum L1 (EIP-161 / EIP-2929) qui applique des surcoûts dynamiques
+		// (25000 gaz si le bénéficiaire est vide, 2600 gaz d'accès froid), le micro-noyau L2 c2evm
+		// applique un barème prévisible et déterministe, analogue aux 5000 gaz statiques de SSTORE.
+		return 5000
 	default:
 		if op >= 0xa0 && op <= 0xa4 {
 			return gasLog
@@ -572,6 +700,25 @@ func (e *vmEnv) execHost(f *c2evm.ExecutionFrame, p callParams, code []byte, op 
 		e.opCall(f, p, 0xf4)
 	case 0xfa:
 		e.opCall(f, p, 0xfa)
+	case 0xff:
+		if !requireStack(f, 1) {
+			return
+		}
+		beneficiary := u256ToAddr(f.Stack[f.SP-1])
+		f.SP--
+		bal := e.account(p.addr).Balance
+		e.transfer(p.addr, beneficiary, bal)
+		e.touch(p.addr)
+		e.touch(beneficiary)
+		e.markSuicided(p.addr)
+		// EIP-6780 (Cancun) : le compte n'est supprimé du StateTrie que s'il
+		// a été créé dans la même transaction. S'il s'agit d'un compte préexistant,
+		// seul son solde est transféré vers le bénéficiaire.
+		if e.createdInTx != nil && e.createdInTx[p.addr] {
+			ua := addrToU256(p.addr)
+			e.state.SetAccount(&ua, nil)
+		}
+		f.Status = c2evm.StatusSuccess
 	default:
 		f.Status = c2evm.StatusInvalidOpcode
 		f.Gas = 0
@@ -824,6 +971,7 @@ func (e *vmEnv) opCall(f *c2evm.ExecutionFrame, p callParams, kind byte) {
 	cp := callParams{
 		caller:   caller,
 		addr:     callee,
+		codeAddr: codeAddr,
 		origin:   p.origin,
 		value:    cval,
 		callVal:  cval,
@@ -832,10 +980,6 @@ func (e *vmEnv) opCall(f *c2evm.ExecutionFrame, p callParams, kind byte) {
 		gas:      fwd,
 		readOnly: ro,
 		kind:     kind,
-	}
-	if kind == 0xf4 || kind == 0xf2 {
-		cp.code = e.codeOf(to)
-		cp.addr = callee
 	}
 	ret, left, ok := e.run(cp)
 	f.Gas += left

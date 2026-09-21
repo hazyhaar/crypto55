@@ -467,3 +467,70 @@ func TestStackUnderflow(t *testing.T) {
 		t.Fatalf("status=%d attendu %d", f.Status, StatusStackUnderflow)
 	}
 }
+
+func TestEVMOpcodeStackOrderGroundTruth(t *testing.T) {
+	cases := []struct {
+		name    string
+		hexCode string
+		want    evm256.Uint256
+	}{
+		{
+			name:    "SUB_3_minus_5_underflow",
+			hexCode: "600560030300", // PUSH1 5, PUSH1 3, SUB, STOP -> top=3, second=5 -> 3 - 5 = 2^256 - 2
+			want:    evm256.Uint256{^uint64(1), ^uint64(0), ^uint64(0), ^uint64(0)},
+		},
+		{
+			name:    "SUB_5_minus_3",
+			hexCode: "600360050300", // PUSH1 3, PUSH1 5, SUB, STOP -> top=5, second=3 -> 5 - 3 = 2
+			want:    evm256.FromU64(2),
+		},
+		{
+			name:    "DIV_10_by_2",
+			hexCode: "6002600a0400", // PUSH1 2, PUSH1 10, DIV, STOP -> top=10, second=2 -> 10 / 2 = 5
+			want:    evm256.FromU64(5),
+		},
+		{
+			name:    "LT_5_less_than_10",
+			hexCode: "600a60051000", // PUSH1 10, PUSH1 5, LT, STOP -> top=5, second=10 -> 5 < 10 = 1
+			want:    evm256.FromU64(1),
+		},
+		{
+			name:    "LT_10_less_than_5",
+			hexCode: "6005600a1000", // PUSH1 5, PUSH1 10, LT, STOP -> top=10, second=5 -> 10 < 5 = 0
+			want:    evm256.FromU64(0),
+		},
+		{
+			name:    "EXP_2_pow_3",
+			hexCode: "600360020a00", // PUSH1 3, PUSH1 2, EXP, STOP -> top=2 (base), second=3 (exp) -> 2^3 = 8
+			want:    evm256.FromU64(8),
+		},
+		{
+			name:    "ADDMOD_5_plus_7_mod_10",
+			hexCode: "600a600760050800", // PUSH1 10, PUSH1 7, PUSH1 5, ADDMOD -> top=5, second=7, third=10 -> (5+7)%10 = 2
+			want:    evm256.FromU64(2),
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := new(ExecutionFrame)
+			f.Reset(1_000_000)
+			code, err := hex.DecodeString(tc.hexCode)
+			if err != nil {
+				t.Fatalf("decode hex: %v", err)
+			}
+			for f.Status == StatusRunning {
+				StepOne(f, code)
+			}
+			if f.Status != StatusSuccess {
+				t.Fatalf("status=%d attendu %d", f.Status, StatusSuccess)
+			}
+			if f.SP != 1 {
+				t.Fatalf("SP=%d attendu 1", f.SP)
+			}
+			if !evm256.Eq(&f.Stack[0], &tc.want) {
+				t.Fatalf("résultat pile=%v, attendu %v", f.Stack[0], tc.want)
+			}
+		})
+	}
+}

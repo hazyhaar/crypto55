@@ -9,3 +9,5 @@ PLAN_*.md
 audit_*.md
 scripts/
 .DS_Store
+*deepseek*
+*llmcall*

@@ -4,8 +4,8 @@ import (
 	"sync"
 
 	"code.hazyhaar.fr/devhoros/crypto55/pkg/c2block"
-	"code.hazyhaar.fr/devhoros/crypto55/pkg/statetrie"
 	"code.hazyhaar.fr/devhoros/crypto55/pkg/evm256"
+	"code.hazyhaar.fr/devhoros/crypto55/pkg/statetrie"
 )
 
 const (

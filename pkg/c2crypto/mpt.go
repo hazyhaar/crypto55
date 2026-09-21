@@ -83,16 +83,37 @@ func RlpEncodeListHeader(payloadLen int, out []byte) int {
 	return 1 + llen
 }
 
+// MptHashNode calcule l'empreinte keccak256 d'un nœud déjà encodé en RLP.
+// L'arbre de Merkle Patricia Ethereum ne référence un enfant par cette
+// empreinte que lorsque son encodage RLP atteint 32 octets ; les enfants plus
+// courts sont insérés bruts dans la liste parente (voir MptChildRefSize et
+// MptEncodeChildRef).
 func MptHashNode(rlpData []byte, out *[32]byte) {
-	rlpLen := len(rlpData)
-	if rlpLen < 32 {
-		*out = [32]byte{}
-		if rlpLen != 0 {
-			copy(out[:], rlpData)
-		}
-		return
-	}
 	Keccak256(rlpData, out)
+}
+
+// MptChildRefSize renvoie la taille RLP de la référence qu'un nœud parent,
+// extension ou branche, porte pour un enfant dont l'encodage RLP est fourni.
+// Un enfant de moins de 32 octets est inséré brut ; sinon le parent porte son
+// empreinte keccak256 de 32 octets.
+func MptChildRefSize(childRLP []byte) int {
+	if len(childRLP) < 32 {
+		return len(childRLP)
+	}
+	return 1 + 32
+}
+
+// MptEncodeChildRef écrit dans out la référence parente d'un enfant déjà
+// encodé en RLP, selon la règle standard : insertion brute sous 32 octets,
+// empreinte keccak256 au-delà. Elle renvoie le nombre d'octets écrits.
+func MptEncodeChildRef(childRLP, out []byte) int {
+	if len(childRLP) < 32 {
+		copy(out, childRLP)
+		return len(childRLP)
+	}
+	var h [32]byte
+	Keccak256(childRLP, &h)
+	return RlpEncodeBytes(h[:], out)
 }
 
 func MptEncodeLeaf(keyNibbles, value, out []byte) int {
@@ -105,21 +126,26 @@ func MptEncodeLeaf(keyNibbles, value, out []byte) int {
 	return n
 }
 
-func MptEncodeExtension(keyNibbles []byte, childHash *[32]byte, out []byte) int {
+// MptEncodeExtension encode un nœud d'extension dont l'enfant est fourni sous
+// sa forme RLP complète (childRLP). La référence écrite respecte la règle
+// d'insertion brute pour les enfants courts.
+func MptEncodeExtension(keyNibbles, childRLP, out []byte) int {
 	var compact [256]byte
 	compactLen := MptCompactEncode(keyNibbles, false, compact[:])
-	payload := rlpBytesSize(compact[:compactLen]) + rlpBytesSize(childHash[:])
+	payload := rlpBytesSize(compact[:compactLen]) + MptChildRefSize(childRLP)
 	n := RlpEncodeListHeader(payload, out)
 	n += RlpEncodeBytes(compact[:compactLen], out[n:])
-	n += RlpEncodeBytes(childHash[:], out[n:])
+	n += MptEncodeChildRef(childRLP, out[n:])
 	return n
 }
 
-func MptEncodeBranch(children *[16][32]byte, hasChild *[16]int, value, out []byte) int {
+// MptEncodeBranch encode un nœud de branche dont chaque enfant est fourni sous
+// sa forme RLP complète. Les enfants courts sont insérés bruts dans la liste.
+func MptEncodeBranch(children *[16][]byte, hasChild *[16]int, value, out []byte) int {
 	payload := 0
 	for i := 0; i < 16; i++ {
 		if hasChild[i] != 0 {
-			payload += rlpBytesSize(children[i][:])
+			payload += MptChildRefSize(children[i])
 		} else {
 			payload += 1
 		}
@@ -132,7 +158,7 @@ func MptEncodeBranch(children *[16][32]byte, hasChild *[16]int, value, out []byt
 	n := RlpEncodeListHeader(payload, out)
 	for i := 0; i < 16; i++ {
 		if hasChild[i] != 0 {
-			n += RlpEncodeBytes(children[i][:], out[n:])
+			n += MptEncodeChildRef(children[i], out[n:])
 		} else {
 			out[n] = 0x80
 			n++

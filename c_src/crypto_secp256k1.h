@@ -20,5 +20,6 @@ void secp256k1_jac_mul(const secp256k1_jac_t *p, const uint256_t *k,
     secp256k1_jac_t *out);
 int secp256k1_ecrecover(const uint8_t hash[32], uint8_t v, const uint8_t r[32],
     const uint8_t s[32], uint8_t out_pubkey[64]);
+int secp256k1_pubkey_from_seckey(const uint8_t seckey[32], uint8_t out_pubkey[64]);
 
 #endif

@@ -443,3 +443,41 @@ func EcRecover(hash []byte, v uint8, r, s []byte, outPubkey *[64]byte) error {
 	copy(outPubkey[32:], yb[:])
 	return nil
 }
+
+var ErrInvalidPrivateKey = errors.New("secp256k1: invalid private key")
+
+func Secp256k1PubkeyFromSeckey(seckey []byte, outPubkey *[64]byte) error {
+	if len(seckey) != 32 || outPubkey == nil {
+		return ErrInvalidPrivateKey
+	}
+	k := evm256.FromBytesBE(seckey)
+	if evm256.IsZero(&k) || evm256.Cmp(&k, &secpN) >= 0 {
+		return ErrInvalidPrivateKey
+	}
+	var gjac, q secpJac
+	gjac.x = secpGX
+	gjac.y = secpGY
+	gjac.z = secpOne
+	secp256k1JacMul(&gjac, &k, &q)
+	var qx, qy evm256.Uint256
+	if jacToAffine(&q, &qx, &qy) != 0 {
+		return ErrInvalidPrivateKey
+	}
+	xb := evm256.BytesBE(qx)
+	yb := evm256.BytesBE(qy)
+	copy(outPubkey[:32], xb[:])
+	copy(outPubkey[32:], yb[:])
+	return nil
+}
+
+func AddressFromPrivateKey(seckey []byte) ([20]byte, error) {
+	var pub [64]byte
+	if err := Secp256k1PubkeyFromSeckey(seckey, &pub); err != nil {
+		return [20]byte{}, err
+	}
+	var h [32]byte
+	Keccak256(pub[:], &h)
+	var addr [20]byte
+	copy(addr[:], h[12:32])
+	return addr, nil
+}

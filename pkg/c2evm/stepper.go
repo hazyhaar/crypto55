@@ -152,7 +152,7 @@ func execBinop(f *ExecutionFrame, fn func(a, b, out *evm256.Uint256)) int {
 	if requireStack(f, 2) != 0 {
 		return -1
 	}
-	fn(&f.Stack[f.SP-2], &f.Stack[f.SP-1], &f.Stack[f.SP-2])
+	fn(&f.Stack[f.SP-1], &f.Stack[f.SP-2], &f.Stack[f.SP-2])
 	f.SP--
 	return 0
 }
@@ -162,7 +162,7 @@ func execCmp(f *ExecutionFrame, fn func(a, b *evm256.Uint256) bool) int {
 		return -1
 	}
 	var v uint64
-	if fn(&f.Stack[f.SP-2], &f.Stack[f.SP-1]) {
+	if fn(&f.Stack[f.SP-1], &f.Stack[f.SP-2]) {
 		v = 1
 	}
 	f.Stack[f.SP-2] = evm256.FromU64(v)
@@ -247,25 +247,25 @@ func StepOne(f *ExecutionFrame, code []byte) int {
 		if requireStack(f, 3) != 0 {
 			return f.Status
 		}
-		evm256.AddMod256(&f.Stack[f.SP-3], &f.Stack[f.SP-2], &f.Stack[f.SP-1], &f.Stack[f.SP-3])
+		evm256.AddMod256(&f.Stack[f.SP-1], &f.Stack[f.SP-2], &f.Stack[f.SP-3], &f.Stack[f.SP-3])
 		f.SP -= 2
 	case 0x09:
 		if requireStack(f, 3) != 0 {
 			return f.Status
 		}
-		evm256.MulMod256(&f.Stack[f.SP-3], &f.Stack[f.SP-2], &f.Stack[f.SP-1], &f.Stack[f.SP-3])
+		evm256.MulMod256(&f.Stack[f.SP-1], &f.Stack[f.SP-2], &f.Stack[f.SP-3], &f.Stack[f.SP-3])
 		f.SP -= 2
 	case 0x0a:
 		if requireStack(f, 2) != 0 {
 			return f.Status
 		}
-		blen := u256ByteLen(&f.Stack[f.SP-1])
+		blen := u256ByteLen(&f.Stack[f.SP-2])
 		extra := 50 * uint64(blen)
 		if f.Gas < extra {
 			return haltEx(f, StatusOutOfGas)
 		}
 		f.Gas -= extra
-		evm256.Exp256(&f.Stack[f.SP-2], &f.Stack[f.SP-1], &f.Stack[f.SP-2])
+		evm256.Exp256(&f.Stack[f.SP-1], &f.Stack[f.SP-2], &f.Stack[f.SP-2])
 		f.SP--
 	case 0x0b:
 		if requireStack(f, 2) != 0 {

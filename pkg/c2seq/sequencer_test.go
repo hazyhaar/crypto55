@@ -7,8 +7,8 @@ import (
 
 	"code.hazyhaar.fr/devhoros/crypto55/pkg/c2block"
 	"code.hazyhaar.fr/devhoros/crypto55/pkg/c2crypto"
-	"code.hazyhaar.fr/devhoros/crypto55/pkg/statetrie"
 	"code.hazyhaar.fr/devhoros/crypto55/pkg/evm256"
+	"code.hazyhaar.fr/devhoros/crypto55/pkg/statetrie"
 )
 
 func mkTx(from c2block.Address, nonce, tip uint64, hash byte) *c2block.Transaction {

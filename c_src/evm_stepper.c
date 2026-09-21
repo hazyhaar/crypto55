@@ -321,7 +321,7 @@ static int exec_binop(evm_frame_t *f,
 	if (require_stack(f, 2) < 0) {
 		return -1;
 	}
-	fn(&f->stack[f->sp - 2], &f->stack[f->sp - 1], &f->stack[f->sp - 2]);
+	fn(&f->stack[f->sp - 1], &f->stack[f->sp - 2], &f->stack[f->sp - 2]);
 	f->sp--;
 	return 0;
 }
@@ -334,7 +334,7 @@ static int exec_cmp(evm_frame_t *f,
 	if (require_stack(f, 2) < 0) {
 		return -1;
 	}
-	r = fn(&f->stack[f->sp - 2], &f->stack[f->sp - 1]);
+	r = fn(&f->stack[f->sp - 1], &f->stack[f->sp - 2]);
 	u256_set_u64(&f->stack[f->sp - 2], r ? 1ULL : 0ULL);
 	f->sp--;
 	return 0;
@@ -441,8 +441,8 @@ int evm_step_one(evm_frame_t *f, const uint8_t *code, size_t code_len)
 		if (require_stack(f, 3) < 0) {
 			return f->status;
 		}
-		evm_addmod256(&f->stack[f->sp - 3], &f->stack[f->sp - 2],
-		    &f->stack[f->sp - 1], &f->stack[f->sp - 3]);
+		evm_addmod256(&f->stack[f->sp - 1], &f->stack[f->sp - 2],
+		    &f->stack[f->sp - 3], &f->stack[f->sp - 3]);
 		f->sp -= 2;
 		break;
 	}
@@ -450,8 +450,8 @@ int evm_step_one(evm_frame_t *f, const uint8_t *code, size_t code_len)
 		if (require_stack(f, 3) < 0) {
 			return f->status;
 		}
-		evm_mulmod256(&f->stack[f->sp - 3], &f->stack[f->sp - 2],
-		    &f->stack[f->sp - 1], &f->stack[f->sp - 3]);
+		evm_mulmod256(&f->stack[f->sp - 1], &f->stack[f->sp - 2],
+		    &f->stack[f->sp - 3], &f->stack[f->sp - 3]);
 		f->sp -= 2;
 		break;
 	}
@@ -462,13 +462,13 @@ int evm_step_one(evm_frame_t *f, const uint8_t *code, size_t code_len)
 		if (require_stack(f, 2) < 0) {
 			return f->status;
 		}
-		blen = u256_byte_len(&f->stack[f->sp - 1]);
+		blen = u256_byte_len(&f->stack[f->sp - 2]);
 		extra = 50ULL * (uint64_t)blen;
 		if (f->gas < extra) {
 			return halt_ex(f, EVM_OUT_OF_GAS);
 		}
 		f->gas -= extra;
-		evm_exp256(&f->stack[f->sp - 2], &f->stack[f->sp - 1],
+		evm_exp256(&f->stack[f->sp - 1], &f->stack[f->sp - 2],
 		    &f->stack[f->sp - 2]);
 		f->sp--;
 		break;

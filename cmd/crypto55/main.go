@@ -17,13 +17,13 @@ import (
 	"time"
 
 	"code.hazyhaar.fr/devhoros/crypto55/pkg/c2crypto"
-	"code.hazyhaar.fr/devhoros/crypto55/pkg/statetrie"
 	"code.hazyhaar.fr/devhoros/crypto55/pkg/c2evm"
 	"code.hazyhaar.fr/devhoros/crypto55/pkg/c2rpc"
 	"code.hazyhaar.fr/devhoros/crypto55/pkg/c2seq"
 	"code.hazyhaar.fr/devhoros/crypto55/pkg/c2web"
 	"code.hazyhaar.fr/devhoros/crypto55/pkg/evm256"
 	"code.hazyhaar.fr/devhoros/crypto55/pkg/onestep"
+	"code.hazyhaar.fr/devhoros/crypto55/pkg/statetrie"
 )
 
 const version = "crypto55 v1.0.0 (Go 1.27, CGO_ENABLED=0, SIMD: AVX-512/NEON enabled, 0-allocation core)"

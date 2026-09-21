@@ -104,14 +104,28 @@ size_t rlp_encode_list_header(size_t payload_len, uint8_t *out)
 
 void mpt_hash_node(const uint8_t *rlp_data, size_t rlp_len, uint8_t out[32])
 {
-	if (rlp_len < 32U) {
-		memset(out, 0, 32U);
-		if (rlp_len != 0U) {
-			memcpy(out, rlp_data, rlp_len);
-		}
-		return;
-	}
 	keccak256(rlp_data, rlp_len, out);
+}
+
+size_t mpt_child_ref_size(const uint8_t *child_rlp, size_t child_len)
+{
+	if (child_len < 32U) {
+		return child_len;
+	}
+	return 1U + 32U;
+}
+
+size_t mpt_encode_child_ref(const uint8_t *child_rlp, size_t child_len,
+    uint8_t *out)
+{
+	uint8_t hash[32];
+
+	if (child_len < 32U) {
+		memcpy(out, child_rlp, child_len);
+		return child_len;
+	}
+	keccak256(child_rlp, child_len, hash);
+	return rlp_encode_bytes(hash, 32U, out);
 }
 
 size_t mpt_encode_leaf(const uint8_t *key_nibbles, size_t num_nibbles,
@@ -132,7 +146,7 @@ size_t mpt_encode_leaf(const uint8_t *key_nibbles, size_t num_nibbles,
 }
 
 size_t mpt_encode_extension(const uint8_t *key_nibbles, size_t num_nibbles,
-    const uint8_t child_hash[32], uint8_t *out)
+    const uint8_t *child_rlp, size_t child_len, uint8_t *out)
 {
 	uint8_t compact[256];
 	size_t compact_len;
@@ -141,16 +155,16 @@ size_t mpt_encode_extension(const uint8_t *key_nibbles, size_t num_nibbles,
 
 	compact_len = mpt_compact_encode(key_nibbles, num_nibbles, 0, compact);
 	payload = rlp_bytes_size(compact, compact_len) +
-	    rlp_bytes_size(child_hash, 32U);
+	    mpt_child_ref_size(child_rlp, child_len);
 	n = rlp_encode_list_header(payload, out);
 	n += rlp_encode_bytes(compact, compact_len, out + n);
-	n += rlp_encode_bytes(child_hash, 32U, out + n);
+	n += mpt_encode_child_ref(child_rlp, child_len, out + n);
 	return n;
 }
 
-size_t mpt_encode_branch(const uint8_t children[16][32],
-    const int has_child[16], const uint8_t *value, size_t val_len,
-    uint8_t *out)
+size_t mpt_encode_branch(const uint8_t *children_rlp[16],
+    const size_t child_lens[16], const int has_child[16], const uint8_t *value,
+    size_t val_len, uint8_t *out)
 {
 	size_t payload;
 	size_t n;
@@ -159,7 +173,7 @@ size_t mpt_encode_branch(const uint8_t children[16][32],
 	payload = 0;
 	for (i = 0; i < 16; i++) {
 		if (has_child[i] != 0) {
-			payload += rlp_bytes_size(children[i], 32U);
+			payload += mpt_child_ref_size(children_rlp[i], child_lens[i]);
 		} else {
 			payload += 1U;
 		}
@@ -173,7 +187,7 @@ size_t mpt_encode_branch(const uint8_t children[16][32],
 	n = rlp_encode_list_header(payload, out);
 	for (i = 0; i < 16; i++) {
 		if (has_child[i] != 0) {
-			n += rlp_encode_bytes(children[i], 32U, out + n);
+			n += mpt_encode_child_ref(children_rlp[i], child_lens[i], out + n);
 		} else {
 			out[n] = 0x80U;
 			n += 1U;

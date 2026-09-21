@@ -13,7 +13,7 @@ contract OneStepEVMTest {
     // Witness construction helpers
     // ------------------------------------------------------------------
 
-    /// @dev Exact replica of OneStepEVM._hashState.
+    /// @dev Exact replica of OneStepEVM._hashState (7 arguments, storageRoot = 0).
     function _h(
         uint32 pc,
         uint64 gas,
@@ -23,7 +23,21 @@ contract OneStepEVMTest {
         uint256 storageKey,
         uint256 storageVal
     ) internal pure returns (bytes32) {
-        return keccak256(abi.encode(pc, gas, stack, memOffset, memData, storageKey, storageVal));
+        return _h(pc, gas, stack, memOffset, memData, bytes32(0), storageKey, storageVal);
+    }
+
+    /// @dev Exact replica of OneStepEVM._hashState (avec storageRoot).
+    function _h(
+        uint32 pc,
+        uint64 gas,
+        uint256[4] memory stack,
+        uint32 memOffset,
+        bytes32 memData,
+        bytes32 storageRoot,
+        uint256 storageKey,
+        uint256 storageVal
+    ) internal pure returns (bytes32) {
+        return keccak256(abi.encode(pc, gas, stack, memOffset, memData, storageRoot, storageKey, storageVal));
     }
 
     /// @dev Assemble a raw witness from explicitly provided roots.
@@ -40,6 +54,25 @@ contract OneStepEVMTest {
         uint256 storageKey,
         uint256 storageVal
     ) internal pure returns (OneStepEVM.StepWitness memory w) {
+        return _buildWithStorage(
+            preRoot, postRoot, pc, op, gas, sin, sout, memOffset, memData, bytes32(0), storageKey, storageVal
+        );
+    }
+
+    function _buildWithStorage(
+        bytes32 preRoot,
+        bytes32 postRoot,
+        uint32 pc,
+        uint8 op,
+        uint64 gas,
+        uint256[4] memory sin,
+        uint256[4] memory sout,
+        uint32 memOffset,
+        bytes32 memData,
+        bytes32 storageRoot,
+        uint256 storageKey,
+        uint256 storageVal
+    ) internal pure returns (OneStepEVM.StepWitness memory w) {
         w.preStateRoot = preRoot;
         w.postStateRoot = postRoot;
         w.pc = pc;
@@ -49,6 +82,7 @@ contract OneStepEVMTest {
         w.stackOut = sout;
         w.memOffset = memOffset;
         w.memData = memData;
+        w.storageRoot = storageRoot;
         w.storageKey = storageKey;
         w.storageVal = storageVal;
     }
@@ -69,10 +103,30 @@ contract OneStepEVMTest {
         uint64 newGas,
         bytes32 newMem
     ) internal pure returns (OneStepEVM.StepWitness memory w) {
-        bytes32 pre = _h(pc, gas, sin, memOffset, memData, storageKey, storageVal);
-        bytes32 post = _h(newPc, newGas, sout, memOffset, newMem, storageKey, storageVal);
-        return _build(
-            pre, post, pc, op, gas, sin, sout, memOffset, memData, storageKey, storageVal
+        return _buildValidWithStorage(
+            pc, op, gas, sin, sout, memOffset, memData, bytes32(0), storageKey, storageVal, newPc, newGas, newMem
+        );
+    }
+
+    function _buildValidWithStorage(
+        uint32 pc,
+        uint8 op,
+        uint64 gas,
+        uint256[4] memory sin,
+        uint256[4] memory sout,
+        uint32 memOffset,
+        bytes32 memData,
+        bytes32 storageRoot,
+        uint256 storageKey,
+        uint256 storageVal,
+        uint32 newPc,
+        uint64 newGas,
+        bytes32 newMem
+    ) internal pure returns (OneStepEVM.StepWitness memory w) {
+        bytes32 pre = _h(pc, gas, sin, memOffset, memData, storageRoot, storageKey, storageVal);
+        bytes32 post = _h(newPc, newGas, sout, memOffset, newMem, storageRoot, storageKey, storageVal);
+        return _buildWithStorage(
+            pre, post, pc, op, gas, sin, sout, memOffset, memData, storageRoot, storageKey, storageVal
         );
     }
 
@@ -139,8 +193,8 @@ contract OneStepEVMTest {
 
     function test_Sub() public {
         uint256[4] memory sin;
-        sin[0] = 10;
-        sin[1] = 3;
+        sin[0] = 3; // second
+        sin[1] = 10; // top (sommet - second = 10 - 3 = 7)
         uint256[4] memory sout;
         sout[0] = 7;
         bytes32 post = _h(1, 97, sout, 0, bytes32(0), 0, 0);
@@ -151,8 +205,8 @@ contract OneStepEVMTest {
 
     function test_Sub_UnderflowWraps() public {
         uint256[4] memory sin;
-        sin[0] = 3;
-        sin[1] = 10;
+        sin[0] = 10; // second
+        sin[1] = 3; // top (sommet - second = 3 - 10 = 2^256 - 7)
         uint256[4] memory sout;
         sout[0] = type(uint256).max - 6; // 3 - 10 en mod 2^256
         bytes32 post = _h(1, 97, sout, 0, bytes32(0), 0, 0);
@@ -163,8 +217,8 @@ contract OneStepEVMTest {
 
     function test_Div() public {
         uint256[4] memory sin;
-        sin[0] = 10;
-        sin[1] = 3;
+        sin[0] = 3; // second
+        sin[1] = 10; // top (sommet / second = 10 / 3 = 3)
         uint256[4] memory sout;
         sout[0] = 3;
         bytes32 post = _h(1, 95, sout, 0, bytes32(0), 0, 0);
@@ -175,8 +229,8 @@ contract OneStepEVMTest {
 
     function test_Div_ByZeroIsZero() public {
         uint256[4] memory sin;
-        sin[0] = 10;
-        sin[1] = 0;
+        sin[0] = 0; // diviseur second = 0
+        sin[1] = 10; // top
         uint256[4] memory sout;
         sout[0] = 0;
         bytes32 post = _h(1, 95, sout, 0, bytes32(0), 0, 0);
@@ -429,6 +483,153 @@ contract OneStepEVMTest {
         _expectReject(
             _buildValid(0, 0x55, 6000, sin, sout, 0, bytes32(0), sk, sv, 1, 1000, bytes32(0))
         );
+    }
+
+    // ------------------------------------------------------------------
+    // Preuve Merkle Patricia Trie de stockage
+    // ------------------------------------------------------------------
+
+    /// @dev Encodage RLP minimal big-endian d'une valeur de stockage.
+    function _storageValueRLP(uint256 value) internal pure returns (bytes memory out) {
+        if (value == 0) {
+            return hex"80";
+        }
+        if (value <= 0x7f) {
+            out = new bytes(1);
+            out[0] = bytes1(uint8(value));
+            return out;
+        }
+        uint256 len = 0;
+        uint256 v = value;
+        while (v != 0) {
+            len++;
+            v >>= 8;
+        }
+        out = new bytes(1 + len);
+        out[0] = bytes1(uint8(0x80 + len));
+        for (uint256 i = 0; i < len; i++) {
+            out[1 + i] = bytes1(uint8(value >> (8 * (len - 1 - i))));
+        }
+    }
+
+    /// @dev Construit la preuve canonique d'un trie de stockage à une seule
+    ///      feuille : compact(0x20 || keccak256(abi.encode(slot))), plus la
+    ///      valeur RLP. La racine est l'empreinte keccak256 du nœud feuille.
+    function _singleSlotProof(uint256 slot, uint256 value)
+        internal
+        pure
+        returns (bytes32 storageRoot, bytes[] memory proof)
+    {
+        bytes32 keyHash = keccak256(abi.encode(slot));
+        bytes memory compact = abi.encodePacked(bytes1(0x20), keyHash);
+        bytes memory valueRlp = _storageValueRLP(value);
+        bytes memory encVal;
+        if (valueRlp.length == 1 && uint8(valueRlp[0]) <= 0x7f) {
+            encVal = valueRlp;
+        } else {
+            encVal = abi.encodePacked(bytes1(uint8(0x80 + valueRlp.length)), valueRlp);
+        }
+        uint256 payload = (1 + compact.length) + encVal.length;
+        require(payload < 56, "charge feuille courte");
+        bytes memory leaf = abi.encodePacked(
+            bytes1(uint8(0xc0 + payload)),
+            bytes1(uint8(0x80 + compact.length)),
+            compact,
+            encVal
+        );
+        storageRoot = keccak256(leaf);
+        proof = new bytes[](1);
+        proof[0] = leaf;
+    }
+
+    function test_SloadWithMptProof() public {
+        uint256 sk = 7;
+        uint256 sv = 0x123456;
+        (bytes32 root, bytes[] memory proof) = _singleSlotProof(sk, sv);
+        uint256[4] memory sin;
+        sin[0] = sk;
+        uint256[4] memory sout;
+        sout[0] = sv;
+        bytes32 post = _h(1, 200, sout, 0, bytes32(0), root, sk, sv);
+        OneStepEVM.StepWitness memory w =
+            _buildValidWithStorage(0, 0x54, 1000, sin, sout, 0, bytes32(0), root, sk, sv, 1, 200, bytes32(0));
+        w.storageProof = proof;
+        _expectSuccess(w, post, 200);
+    }
+
+    function test_SloadWithMptProof_SmallValue() public {
+        uint256 sk = 42;
+        uint256 sv = 100;
+        (bytes32 root, bytes[] memory proof) = _singleSlotProof(sk, sv);
+        uint256[4] memory sin;
+        sin[0] = sk;
+        uint256[4] memory sout;
+        sout[0] = sv;
+        bytes32 post = _h(1, 200, sout, 0, bytes32(0), root, sk, sv);
+        OneStepEVM.StepWitness memory w =
+            _buildValidWithStorage(0, 0x54, 1000, sin, sout, 0, bytes32(0), root, sk, sv, 1, 200, bytes32(0));
+        w.storageProof = proof;
+        _expectSuccess(w, post, 200);
+    }
+
+    function test_SloadWithMptProof_WrongRootRejected() public {
+        uint256 sk = 7;
+        uint256 sv = 0x123456;
+        (bytes32 root,) = _singleSlotProof(sk, sv);
+        (, bytes[] memory proof) = _singleSlotProof(sk, sv);
+        uint256[4] memory sin;
+        sin[0] = sk;
+        uint256[4] memory sout;
+        sout[0] = sv;
+        bytes32 badRoot = root ^ bytes32(uint256(1));
+        OneStepEVM.StepWitness memory w =
+            _buildValidWithStorage(0, 0x54, 1000, sin, sout, 0, bytes32(0), badRoot, sk, sv, 1, 200, bytes32(0));
+        w.storageProof = proof;
+        _expectReject(w);
+    }
+
+    function test_SloadWithMptProof_WrongValueRejected() public {
+        uint256 sk = 7;
+        uint256 sv = 0x123456;
+        (bytes32 root, bytes[] memory proof) = _singleSlotProof(sk, sv);
+        uint256[4] memory sin;
+        sin[0] = sk;
+        uint256[4] memory sout;
+        sout[0] = sv + 1; // valeur revendiquee differente de la feuille
+        OneStepEVM.StepWitness memory w =
+            _buildValidWithStorage(0, 0x54, 1000, sin, sout, 0, bytes32(0), root, sk, sv + 1, 1, 200, bytes32(0));
+        w.storageProof = proof;
+        _expectReject(w);
+    }
+
+    function test_SstoreWithMptProof() public {
+        uint256 sk = 9;
+        uint256 sv = 0xfeed;
+        (bytes32 root, bytes[] memory proof) = _singleSlotProof(sk, sv);
+        uint256[4] memory sin;
+        sin[0] = sv;
+        sin[1] = sk;
+        uint256[4] memory sout;
+        bytes32 post = _h(1, 1000, sout, 0, bytes32(0), root, sk, sv);
+        OneStepEVM.StepWitness memory w =
+            _buildValidWithStorage(0, 0x55, 6000, sin, sout, 0, bytes32(0), root, sk, sv, 1, 1000, bytes32(0));
+        w.storageProof = proof;
+        _expectSuccess(w, post, 1000);
+    }
+
+    function test_SloadWithMptExclusionProof() public {
+        // Le trie ne contient que le slot 7 ; lire le slot 9 prouve l'absence
+        // et donc la valeur nulle, ce qui est une preuve d'exclusion valide.
+        (bytes32 root, bytes[] memory proof) = _singleSlotProof(7, 0x123456);
+        uint256[4] memory sin;
+        sin[0] = 9;
+        uint256[4] memory sout;
+        sout[0] = 0;
+        bytes32 post = _h(1, 200, sout, 0, bytes32(0), root, 9, 0);
+        OneStepEVM.StepWitness memory w =
+            _buildValidWithStorage(0, 0x54, 1000, sin, sout, 0, bytes32(0), root, 9, 0, 1, 200, bytes32(0));
+        w.storageProof = proof;
+        _expectSuccess(w, post, 200);
     }
 
     // ------------------------------------------------------------------

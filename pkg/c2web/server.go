@@ -14,12 +14,12 @@ import (
 	"sync"
 	"time"
 
-	"code.hazyhaar.fr/devhoros/crypto55/pkg/statetrie"
 	"code.hazyhaar.fr/devhoros/crypto55/pkg/c2evm"
 	"code.hazyhaar.fr/devhoros/crypto55/pkg/c2rpc"
 	"code.hazyhaar.fr/devhoros/crypto55/pkg/c2seq"
 	"code.hazyhaar.fr/devhoros/crypto55/pkg/evm256"
 	"code.hazyhaar.fr/devhoros/crypto55/pkg/onestep"
+	"code.hazyhaar.fr/devhoros/crypto55/pkg/statetrie"
 )
 
 //go:embed static/*
@@ -436,7 +436,7 @@ func (s *Server) executeSimulate(req SimulateRequest) (SimulateResponse, int) {
 		StackOut:        stackOutHex,
 		PreStateRoot:    "0x" + hex.EncodeToString(witness.PreStateRoot[:]),
 		PostStateRoot:   "0x" + hex.EncodeToString(witness.PostStateRoot[:]),
-		WitnessABI:      "0xd3a32390" + hex.EncodeToString(abiBytes),
+		WitnessABI:      "0x7bce236b" + hex.EncodeToString(abiBytes),
 		DisputeVerified: disputeVerified,
 	}, http.StatusOK
 }

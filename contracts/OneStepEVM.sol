@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.20;
 
+import "./MPTProofVerifier.sol";
+
 contract OneStepEVM {
     struct StepWitness {
         bytes32 preStateRoot;
@@ -14,6 +16,10 @@ contract OneStepEVM {
         bytes32 memData;
         uint256 storageKey;
         uint256 storageVal;
+        // Racine du trie de stockage du compte et preuve Merkle optionnelle.
+        // Une preuve vide bascule la vérification sur le seul contrôle local.
+        bytes32 storageRoot;
+        bytes[] storageProof;
     }
 
     function executeOneStep(StepWitness calldata w)
@@ -24,7 +30,14 @@ contract OneStepEVM {
         if (
             w.preStateRoot
                 != _hashState(
-                    w.pc, w.gas, w.stackIn, w.memOffset, w.memData, w.storageKey, w.storageVal
+                    w.pc,
+                    w.gas,
+                    w.stackIn,
+                    w.memOffset,
+                    w.memData,
+                    w.storageRoot,
+                    w.storageKey,
+                    w.storageVal
                 )
         ) {
             return (false, bytes32(0), 0);
@@ -41,7 +54,14 @@ contract OneStepEVM {
             }
         }
         bytes32 root = _hashState(
-            newPc, newGas, outStack, w.memOffset, outMem, w.storageKey, w.storageVal
+            newPc,
+            newGas,
+            outStack,
+            w.memOffset,
+            outMem,
+            w.storageRoot,
+            w.storageKey,
+            w.storageVal
         );
         if (root != w.postStateRoot) {
             return (false, bytes32(0), 0);
@@ -55,10 +75,26 @@ contract OneStepEVM {
         uint256[4] memory stack,
         uint32 memOffset,
         bytes32 memData,
+        bytes32 storageRoot,
         uint256 storageKey,
         uint256 storageVal
     ) internal pure returns (bytes32) {
-        return keccak256(abi.encode(pc, gas, stack, memOffset, memData, storageKey, storageVal));
+        return keccak256(
+            abi.encode(pc, gas, stack, memOffset, memData, storageRoot, storageKey, storageVal)
+        );
+    }
+
+    /// @dev Contrôle obligatoire de preuve Merkle Patricia Trie pour le stockage
+    ///      dès lors que storageRoot est non nul.
+    function _storageProofOk(StepWitness calldata w) internal pure returns (bool) {
+        if (w.storageProof.length == 0) {
+            return w.storageRoot == bytes32(0);
+        }
+        bytes memory expected = StorageValueRLP.encode(w.storageVal);
+        bytes32 keyHash = keccak256(abi.encode(w.storageKey));
+        return MPTProofVerifier.verifyStorageProof(
+            w.storageRoot, keyHash, expected, w.storageProof
+        );
     }
 
     function _exec(StepWitness calldata w)
@@ -84,11 +120,11 @@ contract OneStepEVM {
             return (true, newPc, newGas, outStack, outMem);
         }
         if (op == 0x03) {
-            outStack[0] = _sub(w.stackIn[0], w.stackIn[1]);
+            outStack[0] = _sub(w.stackIn[1], w.stackIn[0]);
             return (true, newPc, newGas, outStack, outMem);
         }
         if (op == 0x04) {
-            outStack[0] = w.stackIn[1] == 0 ? 0 : w.stackIn[0] / w.stackIn[1];
+            outStack[0] = w.stackIn[0] == 0 ? 0 : w.stackIn[1] / w.stackIn[0];
             return (true, newPc, newGas, outStack, outMem);
         }
         if (op == 0x16) {
@@ -134,6 +170,9 @@ contract OneStepEVM {
             return (true, newPc, g2, outStack, outMem);
         }
         if (op == 0x54) {
+            if (!_storageProofOk(w)) {
+                return (false, 0, 0, outStack, outMem);
+            }
             if (w.stackIn[0] != w.storageKey) {
                 return (false, 0, 0, outStack, outMem);
             }
@@ -141,6 +180,9 @@ contract OneStepEVM {
             return (true, newPc, newGas, outStack, outMem);
         }
         if (op == 0x55) {
+            if (!_storageProofOk(w)) {
+                return (false, 0, 0, outStack, outMem);
+            }
             if (w.stackIn[1] != w.storageKey || w.stackIn[0] != w.storageVal) {
                 return (false, 0, 0, outStack, outMem);
             }

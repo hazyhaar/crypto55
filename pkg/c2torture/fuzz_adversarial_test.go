@@ -9,10 +9,10 @@ import (
 
 	"code.hazyhaar.fr/devhoros/crypto55/pkg/c2block"
 	"code.hazyhaar.fr/devhoros/crypto55/pkg/c2crypto"
-	"code.hazyhaar.fr/devhoros/crypto55/pkg/statetrie"
 	"code.hazyhaar.fr/devhoros/crypto55/pkg/c2seq"
 	"code.hazyhaar.fr/devhoros/crypto55/pkg/evm256"
 	"code.hazyhaar.fr/devhoros/crypto55/pkg/onestep"
+	"code.hazyhaar.fr/devhoros/crypto55/pkg/statetrie"
 )
 
 var mod256 = new(big.Int).Lsh(big.NewInt(1), 256)
@@ -204,8 +204,8 @@ func deepReentrancyBytecode(maxDepth, revertAt int) []byte {
 	put(0x60, 0x01)
 	put(0x90)
 	put(0x55)
-	put(0x80)
 	put(0x61, byte(maxDepth>>8), byte(maxDepth))
+	put(0x81)
 	put(0x10)
 	put(0x15)
 	stopPush := len(b)
