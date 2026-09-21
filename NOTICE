@@ -1,0 +1,25 @@
+crypto55
+Copyright (c) 2026 HazyHaar (contact@hazyhaar.fr)
+
+CURRENT LICENSE: Business Source License 1.1 (BSL 1.1).
+This is NOT an open-source license and it is NOT Apache-2.0.
+
+All software in this repository (including the sequencer, execution engine,
+state trie, vectorized SIMD arithmetic libraries in pkg/evm256, cryptography
+primitives, OneStep fraud-prover, smart contracts, and associated packages)
+is licensed exclusively under the Business Source License 1.1 (BSL 1.1).
+
+Non-production use (evaluation, research, integration testing, benchmarking)
+and public testnet deployments (including Ethereum Sepolia) are permitted
+free of charge under the license and its Additional Use Grant.
+
+Commercial production use, mainnet sequencer operations, RaaS platforms,
+and live proprietary MEV trading require a commercial license agreement.
+
+See LICENSE for full terms and conditions.
+
+The Apache License, Version 2.0 applies ONLY as a future change license
+effective on or after September 21, 2028.
+
+For commercial licensing, enterprise RaaS agreements, or quantitative simulation
+deployments, contact: contact@hazyhaar.fr.

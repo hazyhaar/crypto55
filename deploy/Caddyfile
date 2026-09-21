@@ -1,0 +1,8 @@
+# Bloc Caddy pour crypto55.hazyhaar.fr (gestion SSL automatique intégrée)
+crypto55.hazyhaar.fr {
+    reverse_proxy 127.0.0.1:8555
+
+    log {
+        output file /var/log/caddy/crypto55.log
+    }
+}

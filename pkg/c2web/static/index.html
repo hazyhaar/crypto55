@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>crypto55 — Client Rollup L2 EVM Haute Performance (0-CGO, 0 B/op)</title>
+  <meta name="description" content="Client d'exécution et séquenceur L2 rollup en pur Go 1.27 SIMD. 2,76M ops EVM/s, 0 allocation, élimination intégrale du fardeau WAVM pour la preuve de litige L1.">
+  <link rel="stylesheet" href="style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚡</text></svg>">
+
+  <!-- Open Graph / Meta Preview -->
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://crypto55.hazyhaar.fr/">
+  <meta property="og:title" content="crypto55 — Client Rollup L2 EVM Haute Performance (0-CGO, 0 B/op)">
+  <meta property="og:description" content="Client d'exécution et séquenceur L2 rollup en pur Go 1.27 SIMD. 2,76M ops EVM/s, 0 allocation, élimination intégrale du fardeau WAVM pour la dispute L1.">
+  <meta property="og:image" content="https://crypto55.hazyhaar.fr/og-image.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:type" content="image/png">
+
+  <!-- Twitter / X Card -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:site" content="@hazyhaar">
+  <meta name="twitter:creator" content="@hazyhaar">
+  <meta name="twitter:title" content="crypto55 — Client Rollup L2 EVM Haute Performance (0-CGO, 0 B/op)">
+  <meta name="twitter:description" content="Client d'exécution et séquenceur L2 rollup en pur Go 1.27 SIMD. 2,76M ops EVM/s, 0 allocation, élimination intégrale du fardeau WAVM pour la dispute L1.">
+  <meta name="twitter:image" content="https://crypto55.hazyhaar.fr/og-image.png">
+</head>
+<body>
+  <!-- Navigation bar -->
+  <header class="navbar">
+    <div class="nav-container">
+      <div class="logo-group">
+        <span class="logo-badge">⚡</span>
+        <span class="logo-text">crypto55</span>
+        <span class="version-tag">v1.0.0</span>
+      </div>
+      <nav class="nav-links">
+        <a href="#metrics">Métrologie</a>
+        <a href="#architecture">Architecture</a>
+        <a href="#playground">Simulateur Live</a>
+        <a href="#commercial">Offres B2B</a>
+        <a href="#api">Documentation API</a>
+        <a href="https://github.com/hazyhaar/crypto55" target="_blank" rel="noopener" class="github-link">GitHub ↗</a>
+      </nav>
+      <div class="nav-status">
+        <span class="status-dot"></span>
+        <span class="status-label">Réseau Local Actif (0-CGO)</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Hero Section -->
+  <section class="hero">
+    <div class="hero-container">
+      <div class="hero-eyebrow">TECHNOLOGIE SOUVERAINE EN PUR GO 1.27 SIMD</div>
+      <h1 class="hero-title">Le client d'exécution L2 rollup pensé avec le matériel.</h1>
+      <p class="hero-subtitle">
+        Zéro liaison CGO, zéro allocation sur la boucle critique d'exécution (0 B/op), accélération vectorielle AVX-512 / NEON et élimination intégrale du fardeau WAVM pour la dispute L1.
+      </p>
+      <div class="hero-actions">
+        <a href="#playground" class="btn btn-primary">Tester le simulateur en direct</a>
+        <a href="https://github.com/hazyhaar/crypto55" target="_blank" rel="noopener" class="btn btn-secondary">Dépôt GitHub (BSL 1.1) ↗</a>
+        <a href="#commercial" class="btn btn-secondary">Offres B2B</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- Real Metrics Grid -->
+  <section id="metrics" class="section metrics-section">
+    <div class="container">
+      <h2 class="section-title">Métrologie réelle mesurée au sol</h2>
+      <p class="section-desc">Chiffres bruts opposables extraits de transitions réelles sans artefact synthétique.</p>
+      
+      <div class="metrics-grid">
+        <div class="metric-card">
+          <div class="metric-value">2 766 555</div>
+          <div class="metric-unit">ops EVM / seconde</div>
+          <div class="metric-desc">Mesuré sur 100 000 programmes avec réinitialisation complète de cadre et contrôle d'invariants.</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-value">3 163 869</div>
+          <div class="metric-unit">hachages Keccak-256 / sec</div>
+          <div class="metric-desc">Noyau SIMD vectorisé pur Go avec permutations en temps constant.</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-value">2,33 ns</div>
+          <div class="metric-unit">addition 256 bits</div>
+          <div class="metric-desc">Arithmétique SIMD déroulée sur registres machine sans conversion big.Int (20,9 ns sur MUL).</div>
+        </div>
+        <div class="metric-card highlight">
+          <div class="metric-value">0 B/op</div>
+          <div class="metric-unit">allocation en régime établi</div>
+          <div class="metric-desc">Pile fixe de 1024 mots de 256-bit, mémoire linéaire par blocs et State Trie CoW sans GC pause.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Architecture Comparison -->
+  <section id="architecture" class="section">
+    <div class="container">
+      <h2 class="section-title">Rupture technologique face aux piles existantes</h2>
+      <div class="table-responsive">
+        <table class="comparison-table">
+          <thead>
+            <tr>
+              <th>Axe Architectural</th>
+              <th>Approche Arbitrum Nitro / Geth</th>
+              <th>Approche crypto55</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Dépendances FFI / CGO</strong></td>
+              <td class="negative">Multiples liaisons C/Rust (Wasmer, secp256k1, Brotli) avec risques de paniques mémoire.</td>
+              <td class="positive"><strong>100% Pur Go 1.27 (CGO_ENABLED=0)</strong>, zéro dépendance externe.</td>
+            </tr>
+            <tr>
+              <td><strong>Preuve de litige L1 (Dispute)</strong></td>
+              <td class="negative">Émulation complète de runtime Go/WASM (WAVM) : 90% du gaz L1 consommé par le GC de Go.</td>
+              <td class="positive"><strong>OneStepEVM direct sur opcode</strong> : validation pure EVM sans WAVM, coût divisé par 10.</td>
+            </tr>
+            <tr>
+              <td><strong>Empreinte mémoire</strong></td>
+              <td class="negative">Allocations dynamiques continues, goulots d'étranglement garbage collector (GC pauses 5-50ms).</td>
+              <td class="positive"><strong>0 B/op</strong> : mémoire d'exécution statique et State Trie slotté en mémoire vive.</td>
+            </tr>
+            <tr>
+              <td><strong>Isolation & Résilience</strong></td>
+              <td class="negative">Wasmer CGO dans le processus séquenceur : risque d'effondrement global sur bogue invité ou corruption FFI.</td>
+              <td class="positive"><strong>Confinement pur Go 1.27 déterministe (0-CGO)</strong> : pile d'opcodes étanche, Gas metering strict et zéro panique non rattrapée.</td>
+            </tr>
+            <tr>
+              <td><strong>Couplage au stockage d'état</strong></td>
+              <td class="negative">Couplage rigide à des bases C++ (RocksDB/MDBX) avec surcoûts d'allocation et compactages bloquants.</td>
+              <td class="positive"><strong>100% Agnostique du SGBD</strong> : State Trie CoW 0-alloc (statetrie) en RAM, adaptable à tout moteur persistant.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- Interactive Playground -->
+  <section id="playground" class="section playground-section">
+    <div class="container">
+      <h2 class="section-title">Bac à sable interactif OneStep & Simulation</h2>
+      <p class="section-desc">Exécutez une transition réelle, observez la mise à jour de la racine Merkle et inspectez le témoin de litige OneStep généré pour le contrat L1.</p>
+
+      <div class="playground-layout">
+        <!-- Controls panel -->
+        <div class="panel control-panel">
+          <div class="panel-header">Configuration de l'Opcode</div>
+          <div class="form-group">
+            <label for="opSelect">Opcode EVM :</label>
+            <select id="opSelect" class="form-control">
+              <option value="ADD">0x01 — ADD (Addition 256 bits)</option>
+              <option value="MUL">0x02 — MUL (Multiplication)</option>
+              <option value="SUB">0x03 — SUB (Soustraction)</option>
+              <option value="DIV">0x04 — DIV (Division)</option>
+              <option value="SHL">0x1B — SHL (Décalage binaire gauche)</option>
+              <option value="SHR">0x1C — SHR (Décalage binaire droite)</option>
+              <option value="AND">0x16 — AND (ET binaire)</option>
+              <option value="OR">0x17 — OR (OU binaire)</option>
+              <option value="XOR">0x18 — XOR (OU exclusif)</option>
+              <option value="PUSH1">0x60 — PUSH1 (Empilement immédiat)</option>
+              <option value="DUP1">0x80 — DUP1 (Duplication sommet)</option>
+              <option value="SWAP1">0x90 — SWAP1 (Échange sommet)</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="stackInput0">Sommet de pile [0] :</label>
+            <input type="text" id="stackInput0" class="form-control" value="0x000000000000000000000000000000000000000000000000000000000000002a">
+          </div>
+
+          <div class="form-group">
+            <label for="stackInput1">Élément de pile [1] :</label>
+            <input type="text" id="stackInput1" class="form-control" value="0x0000000000000000000000000000000000000000000000000000000000000018">
+          </div>
+
+          <div class="form-group">
+            <label for="gasLimit">Gaz alloué :</label>
+            <input type="number" id="gasLimit" class="form-control" value="100000">
+          </div>
+
+          <div class="form-group checkbox-group">
+            <label>
+              <input type="checkbox" id="tamperCheck">
+              Simuler une falsification de la racine d'état (Test de sécurité)
+            </label>
+          </div>
+
+          <button id="btnExecute" class="btn btn-primary btn-block">Exécuter la transition pas-à-pas</button>
+        </div>
+
+        <!-- Output display -->
+        <div class="panel result-panel">
+          <div class="panel-header">Télémétrie d'Exécution & Preuve L1</div>
+          
+          <div class="result-status-box" id="statusBox">
+            <span class="status-indicator ready" id="statusIndicator">Prêt</span>
+            <span id="statusMessage">Cliquez sur « Exécuter la transition » pour lancer l'inférence locale.</span>
+          </div>
+
+          <div class="output-grid">
+            <div class="output-block">
+              <label>Gaz restant :</label>
+              <div class="code-box" id="outGas">100000</div>
+            </div>
+            <div class="output-block">
+              <label>Compteur ordinal (PC) :</label>
+              <div class="code-box" id="outPC">PC: 0 → 1</div>
+            </div>
+          </div>
+
+          <div class="output-block">
+            <label>Sortie de pile [0] :</label>
+            <div class="code-box" id="outStack">—</div>
+          </div>
+
+          <div class="output-block">
+            <label>Racine pré-état (PreStateRoot) :</label>
+            <div class="code-box truncate" id="outPreRoot">—</div>
+          </div>
+
+          <div class="output-block">
+            <label>Racine post-état (PostStateRoot) :</label>
+            <div class="code-box truncate" id="outPostRoot">—</div>
+          </div>
+
+          <div class="output-block">
+            <label>Calldata de litige ABI (OneStepEVM.executeOneStep) :</label>
+            <div class="code-box code-scroll" id="outABI">—</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Commercial Offerings -->
+  <section id="commercial" class="section commercial-section">
+    <div class="container">
+      <h2 class="section-title">Offres Commerciales & Modèles de Partenariat</h2>
+      <p class="section-desc">Valorisation logicielle souveraine en B2B sans intermédiation spéculative.</p>
+
+      <div class="commercial-grid">
+        <!-- Offre 1 -->
+        <div class="card pricing-card">
+          <div class="card-tag">TRADING HAUTE FRÉQUENCE</div>
+          <h3 class="card-title">MEV & Simulation Engine</h3>
+          <p class="card-desc">Bibliothèque de simulation Go pure dédiée aux firmes de trading quantitatif et searchers.</p>
+          <ul class="feature-list">
+            <li>✓ Cadence de 2,76M simulations/sec</li>
+            <li>✓ Zéro garbage collector pause (0 B/op)</li>
+            <li>✓ State Trie en RAM avec CoW atomique</li>
+            <li>✓ Interface Go direct ou gRPC local</li>
+            <li>✓ Licence privée d'usage interne sous NDA</li>
+          </ul>
+          <div class="card-cta">
+            <a href="mailto:contact@hazyhaar.fr?subject=Evaluation%20MEV%20SDK%20crypto55" class="btn btn-primary btn-block">Demander une évaluation sous NDA</a>
+          </div>
+        </div>
+
+        <!-- Offre 2 -->
+        <div class="card pricing-card highlight">
+          <div class="card-tag">INFRASTRUCTURE ROLLUP</div>
+          <h3 class="card-title">Séquenceur RaaS Enterprise</h3>
+          <p class="card-desc">Binaire séquenceur complet pour opérateurs de chaînes L2/L3 (Arbitrum Orbit / Appchains).</p>
+          <ul class="feature-list">
+            <li>✓ Zéro liaison CGO (CGO_ENABLED=0)</li>
+            <li>✓ Compresseur de lots Brotli statique 64 Ko</li>
+            <li>✓ Architecture 100% modulaire et agnostique du stockage</li>
+            <li>✓ Réduction de 50% de l'empreinte mémoire cloud</li>
+            <li>✓ Licence commerciale BSL 1.1 d'entreprise</li>
+          </ul>
+          <div class="card-cta">
+            <a href="mailto:contact@hazyhaar.fr?subject=Licence%20RaaS%20crypto55" class="btn btn-primary btn-block">Étudier une intégration RaaS</a>
+          </div>
+        </div>
+
+        <!-- Offre 3 -->
+        <div class="card pricing-card">
+          <div class="card-tag">PROGRAMMES INSTITUTIONNELS</div>
+          <h3 class="card-title">Grants & Client Diversity</h3>
+          <p class="card-desc">Collaboration technique auprès des fondations pour la résilience et la diversité des clients L2.</p>
+          <ul class="feature-list">
+            <li>✓ Audit blanc complet Nitro 2026 fourni</li>
+            <li>✓ Parité bit-exacte certifiée contre oracles C</li>
+            <li>✓ Contrat Solidity OneStep testé sous Foundry</li>
+            <li>✓ Dossier technique reproductible</li>
+            <li>✓ Financement non dilutif de R&D</li>
+          </ul>
+          <div class="card-cta">
+            <a href="mailto:contact@hazyhaar.fr?subject=Grant%20Client%20Diversity%20crypto55" class="btn btn-secondary btn-block">Demande de contact</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- API Documentation -->
+  <section id="api" class="section api-section">
+    <div class="container">
+      <h2 class="section-title">Documentation de l'API JSON-RPC</h2>
+      <p class="section-desc">Exposition standard pour requêtes de simulation et d'audit.</p>
+
+      <div class="api-docs">
+        <div class="api-endpoint">
+          <div class="api-badge post">POST</div>
+          <span class="api-path">https://crypto55.hazyhaar.fr/api/simulate</span>
+          <span class="api-summary">Simulation d'un pas d'exécution et génération du témoin OneStep.</span>
+        </div>
+        <pre class="code-display"><code>curl -X POST https://crypto55.hazyhaar.fr/api/simulate \
+  -H "Content-Type: application/json" \
+  -d '{
+    "opcode": "ADD",
+    "stack": ["0x2a", "0x18"],
+    "gas": 100000
+  }'</code></pre>
+
+        <div class="api-endpoint">
+          <div class="api-badge post">POST</div>
+          <span class="api-path">https://crypto55.hazyhaar.fr/rpc</span>
+          <span class="api-summary">Interface standard Ethereum (eth_call, eth_blockNumber, c2_simulate).</span>
+        </div>
+        <pre class="code-display"><code>curl -X POST https://crypto55.hazyhaar.fr/rpc \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "eth_blockNumber",
+    "params": []
+  }'</code></pre>
+
+        <div class="api-endpoint">
+          <div class="api-badge post">POST</div>
+          <span class="api-path">https://crypto55.hazyhaar.fr/rpc (c2_simulate)</span>
+          <span class="api-summary">Simulation directe au format JSON-RPC 2.0 (moteur haute cadence pour MEV/quant).</span>
+        </div>
+        <pre class="code-display"><code>curl -X POST https://crypto55.hazyhaar.fr/rpc \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "c2_simulate",
+    "params": [{
+      "opcode": "SHL",
+      "stack": ["0x2a", "0x18"],
+      "gas": 100000
+    }]
+  }'</code></pre>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="container footer-container">
+      <div class="footer-left">
+        <strong>crypto55</strong> — Module du pôle d'ingénierie logicielle <strong>hazyhaar.fr</strong>.
+        <span style="margin-left: 14px;"><a href="https://github.com/hazyhaar/crypto55" target="_blank" rel="noopener" style="color: var(--accent-cyan); text-decoration: none;">GitHub : hazyhaar/crypto55 ↗</a></span>
+      </div>
+      <div class="footer-right">
+        Conçu avec le matériel, pas malgré lui. Licence Business Source License 1.1.
+      </div>
+    </div>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>

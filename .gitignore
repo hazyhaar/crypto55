@@ -1,0 +1,11 @@
+bin/
+cache/
+out/
+*.log
+*.log.*
+*.work
+*.tmp
+PLAN_*.md
+audit_*.md
+scripts/
+.DS_Store

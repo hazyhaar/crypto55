@@ -1,0 +1,31 @@
+[Unit]
+Description=crypto55 — portail web et simulateur OneStep crypto55.hazyhaar.fr
+After=network.target
+
+[Service]
+Type=simple
+DynamicUser=yes
+ExecStart=/opt/crypto55/crypto55 web --addr 127.0.0.1:8555 --chain-id 55055
+Restart=on-failure
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+# Durcissement — surface d'attaque réduite. Le site ne tient aucun état persistant sur disque
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target
