@@ -10,16 +10,24 @@ primitives, OneStep fraud-prover, smart contracts, and associated packages)
 is licensed exclusively under the Business Source License 1.1 (BSL 1.1).
 
 Non-production use (evaluation, research, integration testing, benchmarking)
-and public testnet deployments (including Ethereum Sepolia) are permitted
-free of charge under the license and its Additional Use Grant.
+and your own public testnet deployments (including Ethereum Sepolia) are
+permitted free of charge under the license and its Additional Use Grant.
 
 Commercial production use, mainnet sequencer operations, RaaS platforms,
 and live proprietary MEV trading require a commercial license agreement.
+Offering crypto55 to third parties as a hosted, managed or embedded service
+(including Rollup-as-a-Service, sequencer or prover services) requires a
+commercial license on every network, test networks included.
+
+Each version converts to the Apache License 2.0 on its Change Date:
+2028-09-21 for crypto55 v1.0, and the fourth anniversary of first public
+distribution for each later version.
 
 See LICENSE for full terms and conditions.
 
-The Apache License, Version 2.0 applies ONLY as a future change license
-effective on or after September 21, 2028.
+The Apache License, Version 2.0 applies ONLY as a future change license,
+effective for each version on its Change Date (September 21, 2028 for
+crypto55 v1.0).
 
 For commercial licensing, enterprise RaaS agreements, or quantitative simulation
 deployments, contact: contact@hazyhaar.fr.

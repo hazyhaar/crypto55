@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: BUSL-1.1
+// Copyright (c) 2026 HazyHaar. Licensed under the Business Source License 1.1;
+// see ../LICENSE and ../NOTICE.
+
 #include "crypto_brotli_l2.h"
 
 #include <string.h>

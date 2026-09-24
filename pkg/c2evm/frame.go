@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BUSL-1.1
+// Copyright (c) 2026 HazyHaar. See LICENSE and NOTICE.
+
 package c2evm
 
 import "code.hazyhaar.fr/devhoros/crypto55/pkg/evm256"

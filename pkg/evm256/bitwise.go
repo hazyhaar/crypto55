@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BUSL-1.1
+// Copyright (c) 2026 HazyHaar. See LICENSE and NOTICE.
+
 package evm256
 
 func Lt256(a, b *Uint256) bool {

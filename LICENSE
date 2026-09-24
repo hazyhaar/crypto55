@@ -4,15 +4,21 @@ License text copyright (c) 2017 MariaDB Corporation Ab, All Rights Reserved.
 Parameters
 
 Licensor:             HazyHaar
-Licensed Work:        crypto55 v1.0.
-                      The Licensed Work is (c) 2026 HazyHaar
+Licensed Work:        crypto55 v1.0 and every later version published by the
+                      Licensor. The Licensed Work is (c) 2026 HazyHaar.
 Additional Use Grant: You may make production use of the Licensed Work on public
                       blockchain test networks whose native assets are designated
                       test tokens without real economic value (including
                       Ethereum Sepolia, Arbitrum Sepolia, and local development
-                      testnets).
+                      testnets), provided that you do not offer the Licensed
+                      Work, or any product or service that exposes its
+                      functionality, to third parties as a hosted, managed or
+                      embedded service (including Rollup-as-a-Service,
+                      sequencer or prover services), on any network.
 
-Change Date:          2028-09-21
+Change Date:          2028-09-21 for crypto55 v1.0. For each later version, the
+                      fourth anniversary of the first publicly available
+                      distribution of that version under this License.
 
 Change License:       Apache License, Version 2.0
 

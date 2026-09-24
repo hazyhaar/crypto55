@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: BUSL-1.1
+// Copyright (c) 2026 HazyHaar. Licensed under the Business Source License 1.1;
+// see ../LICENSE and ../NOTICE.
+
 #include "crypto_secp256k1.h"
 #include "evm_arith256.h"
 
